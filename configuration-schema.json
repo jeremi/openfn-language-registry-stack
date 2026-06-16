@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "notary_base_url",
+    "token",
+    "openfn_request_fingerprint_key"
+  ],
+  "properties": {
+    "notary_base_url": {
+      "title": "Registry Notary URL",
+      "type": "string",
+      "description": "Base URL for the Registry Notary service.",
+      "format": "uri",
+      "minLength": 1,
+      "examples": [
+        "https://agriculture-notary.lab.registrystack.org"
+      ]
+    },
+    "token": {
+      "title": "Bearer Token",
+      "type": "string",
+      "description": "Bearer token for the Registry Notary caller credential.",
+      "writeOnly": true,
+      "minLength": 1
+    },
+    "openfn_request_fingerprint_key": {
+      "title": "OpenFn Request Fingerprint Key",
+      "type": "string",
+      "description": "Local OpenFn helper secret used to HMAC evaluation requests for replay checks. This value is not sent to Registry Notary.",
+      "writeOnly": true,
+      "minLength": 1
+    },
+    "openfn_target_fingerprint_key": {
+      "title": "OpenFn Target Fingerprint Key",
+      "type": "string",
+      "description": "Optional separate local OpenFn helper secret for target_fingerprint audit values. If omitted, the request fingerprint key is reused.",
+      "writeOnly": true,
+      "minLength": 1
+    }
+  }
+}
