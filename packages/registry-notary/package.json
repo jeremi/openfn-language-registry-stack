@@ -1,7 +1,7 @@
 {
-  "name": "@openfn/language-registry-stack",
+  "name": "@openfn/language-registry-notary",
   "version": "0.1.0",
-  "description": "OpenFn language helpers for Registry Stack services, starting with Registry Notary.",
+  "description": "OpenFn language helpers for Registry Notary.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./src/index.js",

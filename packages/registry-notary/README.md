@@ -7,7 +7,7 @@ When this repository is used as `OPENFN_ADAPTORS_REPO`, this package is loaded
 as:
 
 ```text
-@openfn/language-registry-stack@local
+@openfn/language-registry-notary@local
 ```
 
 This package is intentionally separate from the Registry Notary source-sidecar
@@ -16,7 +16,7 @@ helper because it is for OpenFn workflows that call Notary as a client.
 ## Install
 
 ```sh
-npm install @openfn/language-registry-stack
+npm install @openfn/language-registry-notary
 ```
 
 Configure an OpenFn credential with:

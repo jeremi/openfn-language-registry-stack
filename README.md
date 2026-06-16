@@ -17,15 +17,15 @@ also be listed before the canonical OpenFn adaptors repo:
 export OPENFN_ADAPTORS_REPO=/path/to/openfn-language-registry-stack,/path/to/adaptors
 ```
 
-Lightning and the worker resolve `packages/registry-stack` as:
+Lightning and the worker resolve `packages/registry-notary` as:
 
 ```text
-@openfn/language-registry-stack@local
+@openfn/language-registry-notary@local
 ```
 
 ## Packages
 
-- [packages/registry-stack](packages/registry-stack): Registry Notary client
+- [packages/registry-notary](packages/registry-notary): Registry Notary client
   helper for OpenFn workflows.
 
 ## Verify
