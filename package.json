@@ -8,9 +8,9 @@
     "packages/*"
   ],
   "scripts": {
-    "check": "npm --workspace @openfn/language-registry-notary run check",
-    "test": "npm --workspace @openfn/language-registry-notary test",
-    "pack:dry-run": "npm --workspace @openfn/language-registry-notary pack --dry-run"
+    "check": "npm run check --workspaces",
+    "test": "npm test --workspaces",
+    "pack:dry-run": "npm run pack:dry-run --workspaces"
   },
   "engines": {
     "node": ">=20.18.1"
