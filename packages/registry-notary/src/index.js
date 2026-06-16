@@ -45,7 +45,7 @@ export function buildEvaluationRequest(state, options = {}) {
   const target = buildTarget(data, options.target);
   const targetFingerprint = fingerprintTarget(configuration, target, options);
   const baseUrl = trimTrailingSlash(requireString(configuration.notary_base_url, "configuration.notary_base_url"));
-  const token = requireString(configuration.notary_token, "configuration.notary_token");
+  const token = requireString(configuration.token ?? configuration.notary_token, "configuration.token");
   const headers = {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
@@ -523,7 +523,12 @@ function fingerprintTarget(configuration, target, options) {
   if (typeof options.targetFingerprint === "string" && options.targetFingerprint.length > 0) {
     return options.targetFingerprint;
   }
-  const key = requireString(configuration.notary_target_fingerprint_key, "configuration.notary_target_fingerprint_key");
+  const key = requireString(
+    configuration.openfn_target_fingerprint_key
+      ?? configuration.openfn_request_fingerprint_key
+      ?? configuration.notary_target_fingerprint_key,
+    "configuration.openfn_target_fingerprint_key",
+  );
   return createHmac("sha256", key)
     .update(JSON.stringify(target))
     .digest("hex");

@@ -61,6 +61,30 @@ test("buildEvaluationRequest sends auth, purpose, request id, and current Notary
   });
 });
 
+test("buildEvaluationRequest accepts OpenFn credential token field", () => {
+  const state = buildEvaluationRequest(
+    {
+      ...baseState,
+      configuration: {
+        notary_base_url: "https://notary.example",
+        token: "openfn-token",
+        openfn_request_fingerprint_key: "test-key",
+      },
+    },
+    {
+      claimId: "benefits-person-exists",
+      purpose: "benefits_eligibility",
+      target: {
+        type: "Person",
+        identifiers: [{ scheme: "national_id", valueFrom: "national_id", issuer: "civil_registry" }],
+      },
+    },
+  );
+
+  assert.equal(state.data.notary_request.headers.Authorization, "Bearer openfn-token");
+  assert.equal(typeof state.data.notary_context.target_fingerprint, "string");
+});
+
 test("buildEvaluationRequest normalizes relationship aliases to the wire shape", () => {
   const state = buildEvaluationRequest(baseState, {
     claimId: "benefits-person-exists",
