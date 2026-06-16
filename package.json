@@ -1,32 +1,18 @@
 {
-  "name": "@jeremi/openfn-language-registry-stack",
+  "name": "openfn-language-registry-stack",
   "version": "0.1.0",
-  "description": "OpenFn language helpers for Registry Stack services, starting with Registry Notary.",
+  "private": true,
+  "description": "OpenFn local adaptor monorepo for Registry Stack services.",
   "license": "Apache-2.0",
-  "type": "module",
-  "main": "./src/index.js",
-  "exports": {
-    ".": "./src/index.js"
-  },
-  "files": [
-    "src",
-    "jobs",
-    "configuration-schema.json",
-    "README.md"
+  "workspaces": [
+    "packages/*"
   ],
   "scripts": {
-    "test": "node --experimental-vm-modules --no-warnings --test test/caller.test.js",
-    "check": "node --check src/index.js && node --check jobs/evaluate-claim-http.js && npm test",
-    "pack:dry-run": "npm pack --dry-run"
+    "check": "npm --workspace @openfn/language-registry-stack run check",
+    "test": "npm --workspace @openfn/language-registry-stack test",
+    "pack:dry-run": "npm --workspace @openfn/language-registry-stack pack --dry-run"
   },
   "engines": {
     "node": ">=20.18.1"
-  },
-  "dependencies": {
-    "@openfn/language-common": "3.3.3"
-  },
-  "devDependencies": {
-    "@openfn/compiler": "1.2.5",
-    "@openfn/runtime": "1.9.3"
   }
 }

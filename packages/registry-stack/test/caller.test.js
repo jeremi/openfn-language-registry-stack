@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -31,6 +31,7 @@ const baseState = Object.freeze({
   },
 });
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
+const languageCommonRoot = findDependencyRoot(packageRoot, "@openfn/language-common");
 
 test("buildEvaluationRequest sends auth, purpose, request id, and current Notary body shape", () => {
   const state = buildEvaluationRequest(baseState, {
@@ -780,7 +781,7 @@ test("compiled OpenFn template runs through the OpenFn runtime and calls Notary 
       {
         linker: {
           modules: {
-            "@openfn/language-common": { path: resolve(packageRoot, "node_modules/@openfn/language-common") },
+            "@openfn/language-common": { path: languageCommonRoot },
             "../src/index.js": { path: packageRoot },
           },
           cacheKey: `openfn-caller-test-${process.pid}-${Date.now()}`,
@@ -802,6 +803,21 @@ test("compiled OpenFn template runs through the OpenFn runtime and calls Notary 
     globalThis.fetch = originalFetch;
   }
 });
+
+function findDependencyRoot(start, packageName) {
+  let current = resolve(start);
+  while (true) {
+    const candidate = resolve(current, "node_modules", packageName);
+    if (existsSync(resolve(candidate, "package.json"))) {
+      return candidate;
+    }
+    const parent = resolve(current, "..");
+    if (parent === current) {
+      throw new Error(`dependency not found: ${packageName}`);
+    }
+    current = parent;
+  }
+}
 
 function jsonResponse(body, options = {}) {
   const status = options.status ?? 200;
