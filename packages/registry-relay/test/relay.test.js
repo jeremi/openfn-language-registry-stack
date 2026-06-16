@@ -33,7 +33,7 @@ const languageCommonRoot = findDependencyRoot(packageRoot, "@openfn/language-com
 test("getRecord sends bearer auth, purpose, request id, traceparent, and projected fields", async () => {
   const calls = [];
   const state = await getRecord({
-    dataset: "nagdi_agriculture",
+    dataset: "agri_registry",
     entity: "farmer",
     id: { valueFrom: "farmer_id" },
     purpose: "https://demo.example.gov/purpose/nagdi/climate-smart-input-support",
@@ -51,7 +51,7 @@ test("getRecord sends bearer auth, purpose, request id, traceparent, and project
   assert.equal(calls.length, 1);
   assert.equal(
     calls[0].url,
-    "https://relay.example/v1/datasets/nagdi_agriculture/entities/farmer/records/FARMER-1001?fields=id%2Cdistrict",
+    "https://relay.example/v1/datasets/agri_registry/entities/farmer/records/FARMER-1001?fields=id%2Cdistrict",
   );
   assert.equal(calls[0].init.method, "GET");
   assert.equal(calls[0].init.headers.Authorization, "Bearer secret-token");
@@ -74,7 +74,7 @@ test("getRecord requires a purpose for row reads", async () => {
   await assert.rejects(
     () =>
       getRecord({
-        dataset: "nagdi_agriculture",
+        dataset: "agri_registry",
         entity: "farmer",
         id: "FARMER-1001",
         fetch: async () => jsonResponse({}),
@@ -87,7 +87,7 @@ test("listRecords requires explicit limit and filters by default", async () => {
   await assert.rejects(
     () =>
       listRecords({
-        dataset: "nagdi_agriculture",
+        dataset: "agri_registry",
         entity: "farmer",
         purpose: "purpose",
         limit: 50,
@@ -99,7 +99,7 @@ test("listRecords requires explicit limit and filters by default", async () => {
   await assert.rejects(
     () =>
       listRecords({
-        dataset: "nagdi_agriculture",
+        dataset: "agri_registry",
         entity: "farmer",
         purpose: "purpose",
         filters: { district: "north" },
@@ -112,7 +112,7 @@ test("listRecords requires explicit limit and filters by default", async () => {
 test("listRecords encodes filters, pagination, fields, and expansions", async () => {
   const calls = [];
   const state = await listRecords({
-    dataset: "nagdi_agriculture",
+    dataset: "agri_registry",
     entity: "farmer",
     purpose: "purpose",
     filters: {
@@ -134,7 +134,7 @@ test("listRecords encodes filters, pagination, fields, and expansions", async ()
   })(baseState);
 
   const url = new URL(calls[0].url);
-  assert.equal(url.pathname, "/v1/datasets/nagdi_agriculture/entities/farmer/records");
+  assert.equal(url.pathname, "/v1/datasets/agri_registry/entities/farmer/records");
   assert.equal(url.searchParams.get("district"), "north");
   assert.equal(url.searchParams.get("id.in"), "FARMER-1001,FARMER-1002");
   assert.equal(url.searchParams.get("fields"), "id,district");
@@ -148,20 +148,20 @@ test("listRecords encodes filters, pagination, fields, and expansions", async ()
 test("queryAggregate sends Relay aggregate query body", async () => {
   const calls = [];
   const state = await queryAggregate({
-    dataset: "nagdi_agriculture",
-    aggregate: "farmers_by_district",
+    dataset: "agri_registry",
+    aggregate: "voucher_opportunities_by_district_crop_risk_input",
     purpose: "purpose",
-    dimensions: ["district"],
-    measures: ["farmer_count"],
-    filters: { season: ["2026"] },
+    dimensions: ["district_code"],
+    measures: ["eligible_opportunity_count"],
+    filters: { season: ["2026A"] },
     maxRows: 100,
     as: "district_summary",
     fetch: async (url, init) => {
       calls.push({ url, init });
       return jsonResponse({
-        dataset_id: "nagdi_agriculture",
-        aggregate_id: "farmers_by_district",
-        observations: [{ district: "north", farmer_count: 12 }],
+        dataset_id: "agri_registry",
+        aggregate_id: "voucher_opportunities_by_district_crop_risk_input",
+        observations: [{ district_code: "north", eligible_opportunity_count: 12 }],
         completeness: { complete: true, truncated: false },
         disclosure_control: { method: ["k-anonymity"] },
         freshness: { computed_at: "2026-06-01T00:00:00Z" },
@@ -171,17 +171,17 @@ test("queryAggregate sends Relay aggregate query body", async () => {
     },
   })(baseState);
 
-  assert.equal(calls[0].url, "https://relay.example/v1/datasets/nagdi_agriculture/aggregates/farmers_by_district/query?f=json");
+  assert.equal(calls[0].url, "https://relay.example/v1/datasets/agri_registry/aggregates/voucher_opportunities_by_district_crop_risk_input/query?f=json");
   assert.equal(calls[0].init.method, "POST");
   assert.equal(calls[0].init.headers["Content-Type"], "application/json");
   assert.deepEqual(JSON.parse(calls[0].init.body), {
-    filters: { season: ["2026"] },
+    filters: { season: ["2026A"] },
     format: "json",
-    group_by: ["district"],
+    group_by: ["district_code"],
     max_rows: 100,
-    measures: ["farmer_count"],
+    measures: ["eligible_opportunity_count"],
   });
-  assert.deepEqual(state.data.district_summary.observations, [{ district: "north", farmer_count: 12 }]);
+  assert.deepEqual(state.data.district_summary.observations, [{ district_code: "north", eligible_opportunity_count: 12 }]);
   assert.deepEqual(state.data.district_summary.completeness, { complete: true, truncated: false });
 });
 
@@ -190,18 +190,18 @@ test("discoverDatasets does not send Data-Purpose", async () => {
   const state = await discoverDatasets({
     fetch: async (url, init) => {
       calls.push({ url, init });
-      return jsonResponse({ data: [{ dataset_id: "nagdi_agriculture" }] });
+      return jsonResponse({ data: [{ dataset_id: "agri_registry" }] });
     },
   })(baseState);
 
   assert.equal(calls[0].url, "https://relay.example/v1/datasets");
   assert.equal("Data-Purpose" in calls[0].init.headers, false);
-  assert.deepEqual(state.data.datasets.datasets, [{ dataset_id: "nagdi_agriculture" }]);
+  assert.deepEqual(state.data.datasets.datasets, [{ dataset_id: "agri_registry" }]);
 });
 
 test("Problem Details are mapped without leaking detail", async () => {
   const state = await getRecord({
-    dataset: "nagdi_agriculture",
+    dataset: "agri_registry",
     entity: "farmer",
     id: "FARMER-1001",
     purpose: "purpose",
@@ -232,7 +232,7 @@ test("Problem Details are mapped without leaking detail", async () => {
 test("429 and 503 responses become retryable infrastructure branches", async () => {
   for (const status of [429, 503]) {
     const state = await getRecord({
-      dataset: "nagdi_agriculture",
+      dataset: "agri_registry",
       entity: "farmer",
       id: "FARMER-1001",
       purpose: "purpose",
@@ -251,7 +251,7 @@ test("429 and 503 responses become retryable infrastructure branches", async () 
 
 test("transport errors are redacted retryable infrastructure branches", async () => {
   const state = await getRecord({
-    dataset: "nagdi_agriculture",
+    dataset: "agri_registry",
     entity: "farmer",
     id: "FARMER-1001",
     purpose: "purpose",
@@ -267,7 +267,7 @@ test("transport errors are redacted retryable infrastructure branches", async ()
 
 test("304 responses return not_modified with response validators", async () => {
   const state = await getRecord({
-    dataset: "nagdi_agriculture",
+    dataset: "agri_registry",
     entity: "farmer",
     id: "FARMER-1001",
     purpose: "purpose",
@@ -361,7 +361,7 @@ test("compiled OpenFn template runs through the OpenFn runtime and calls Relay o
 
     assert.equal(result.errors, undefined);
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, "https://relay.example/v1/datasets/nagdi_agriculture/entities/farmer/records/FARMER-1001?fields=id%2Cdistrict%2Cregistration_status");
+    assert.equal(calls[0].url, "https://relay.example/v1/datasets/agri_registry/entities/farmer/records/FARMER-1001?fields=id%2Cdistrict%2Cregistration_status");
     assert.equal(calls[0].init.headers.Authorization, "Bearer secret-token");
     assert.equal(result.data.farmer.branch, "succeeded");
     assert.equal(result.data.farmer.request_id, "relay-runtime-req");

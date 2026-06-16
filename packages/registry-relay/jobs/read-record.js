@@ -5,7 +5,7 @@ import { getRecord } from "../src/index.js";
 
 execute(
   getRecord({
-    dataset: "nagdi_agriculture",
+    dataset: "agri_registry",
     entity: "farmer",
     id: dataValue("farmer_id"),
     purpose: "https://demo.example.gov/purpose/nagdi/climate-smart-input-support",

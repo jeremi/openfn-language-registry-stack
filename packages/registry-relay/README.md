@@ -24,12 +24,18 @@ Create an OpenFn credential with:
 The adaptor sends credentials as `Authorization: Bearer <token>`. It does not
 send `x-api-key`.
 
+The examples below use the public Registry Stack lab at
+`https://lab.registrystack.org`. The lab publishes current credential metadata
+at `https://lab.registrystack.org/api/lab.json`; use `agri-row-reader` for row
+reads, `agri-aggregate-reader` for aggregate reads, `agri-metadata` for dataset
+discovery, and `agri-evidence-only` for evidence offering discovery.
+
 ## Read One Record
 
 ```js
 execute(
   getRecord({
-    dataset: "nagdi_agriculture",
+    dataset: "agri_registry",
     entity: "farmer",
     id: dataValue("farmer_id"),
     purpose: "https://demo.example.gov/purpose/nagdi/climate-smart-input-support",
@@ -64,7 +70,7 @@ Collection reads require an explicit `limit` and at least one filter unless
 ```js
 execute(
   listRecords({
-    dataset: "nagdi_agriculture",
+    dataset: "agri_registry",
     entity: "farmer",
     purpose: "https://demo.example.gov/purpose/nagdi/climate-smart-input-support",
     filters: {
@@ -83,12 +89,12 @@ execute(
 ```js
 execute(
   queryAggregate({
-    dataset: "nagdi_agriculture",
-    aggregate: "farmers_by_district",
+    dataset: "agri_registry",
+    aggregate: "voucher_opportunities_by_district_crop_risk_input",
     purpose: "https://demo.example.gov/purpose/nagdi/program-monitoring",
-    dimensions: ["district"],
-    measures: ["farmer_count"],
-    filters: { season: ["2026"] },
+    dimensions: ["district_code"],
+    measures: ["eligible_opportunity_count"],
+    filters: { season: ["2026A"] },
     maxRows: 100,
     as: "district_summary",
   }),
@@ -100,8 +106,8 @@ execute(
       ...state,
       data: {
         ...state.data,
-        north_farmer_count:
-          observations.find((row) => row.district === "north")?.farmer_count ?? 0,
+        north_voucher_opportunities:
+          observations.find((row) => row.district_code === "north")?.eligible_opportunity_count ?? 0,
       },
     };
   }),
@@ -114,7 +120,7 @@ execute(
 execute(
   discoverDatasets({ as: "catalog" }),
   getEntitySchema({
-    dataset: "nagdi_agriculture",
+    dataset: "agri_registry",
     entity: "farmer",
     as: "farmer_schema",
   }),
