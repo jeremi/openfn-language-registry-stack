@@ -13,9 +13,11 @@ cannot choose a token or profile.
 ## Candidate requirement
 
 Development currently requires the locally built `@registrystack/client`
-0.29.0 candidate from the Casework checkpoint. Do not assume an ordinary public
-0.29.0 install contains the Casework namespace until that client is published
-and verified. Keep this package private until then.
+0.29.0 candidate from the Casework checkpoint. That local build is distinct from
+the already published public 0.29.0 package, which does not contain Casework.
+Keep this package private until a future Registry Stack client release includes
+the namespace and its installed integration has been verified. Never replace
+the published 0.29.0 package with the local candidate.
 
 ## Configuration
 
