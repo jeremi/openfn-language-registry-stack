@@ -1,14 +1,16 @@
 # Registry Casework Requester adaptor
 
-This private OpenFn adaptor wraps the Requester review API in the published
+This OpenFn adaptor wraps the Requester review API in the published
 Registry Stack Node client 0.37.0. It creates or recovers review requests,
 reads request state and correlated results, adds requester-visible notes, pages
 requester-visible history and result feeds, and cancels an accepted request.
+It also preserves the maintained source-inbox and task-grant inspection surface
+for workflows that use a separately authorized source profile.
 
-It exports no review-task, work-item, staff, supervisor, administrator, source
-profile, accountability, or task-grant operation. Casework binds every request
-to the authenticated producer and configured Requester profile. Workflow data
-cannot choose a token or profile.
+It exports no claim, release, decision, task-assertion, staff, supervisor,
+administrator, or accountability operation. Casework binds every request to
+the authenticated producer and configured Casework profile. Workflow data
+cannot choose a token or Casework profile.
 
 ## Configuration
 
@@ -23,6 +25,11 @@ Store the credential in OpenFn configuration:
   }
 }
 ```
+
+For a refreshing service credential, replace `token` with
+`authorization: { privateKeyJwt: { tokenEndpoint, clientId, clientKey, resource,
+scopes } }`. Configure exactly one credential source. The adaptor validates the
+operation before asking the native provider for a token.
 
 `requestTimeoutMilliseconds`, `connectTimeoutMilliseconds`,
 `maxResponseBytes`, `userAgent`, and `trustedRootCertificates` pass to the
@@ -50,6 +57,19 @@ job output.
 Create and cancel each make one maintained-client call. The adaptor never
 generates an idempotency key, retries a mutation, replaces a digest, or rebuilds
 an accepted binding.
+
+## Source inbox and task-grant operations
+
+- `listCaseworkWorkItems` requires `sourceProfile` and an exact native `query`.
+- `getCaseworkWorkItem`, `previewCaseworkTaskTemplates`, and
+  `listCaseworkTaskGrants` require `sourceProfile` and `itemId`.
+- `approveCaseworkTaskGrant` also requires the held `expectedRevision`, a
+  caller-owned `idempotencyKey`, `templateId`, and `templateVersion`.
+- `revokeCaseworkTaskGrant` requires `sourceProfile`, `itemId`, and `grantId`.
+- `caseworkTaskGrantStatus` requires `grantId`.
+
+The adaptor passes source authority, revisions, and keys to the native client
+unchanged. It never issues a task assertion into workflow state.
 
 A normal response has `{ branch: "succeeded", value, traceId? }`. Result lookup
 instead preserves the native state as `available`, `pending`,

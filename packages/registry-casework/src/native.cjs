@@ -2,7 +2,7 @@
 // OpenFn expressions run in a VM realm. Normalize plain JSON into the SDK's
 // realm while retaining its bounded, accessor-free input contract.
 const { types: { isProxy } } = require("node:util");
-const { casework } = require("@registrystack/client");
+const { breg, casework } = require("@registrystack/client");
 const { CaseworkClientError } = casework;
 
 function copy(value, kind = "invalid_request") {
@@ -85,6 +85,8 @@ for (const [method, indexes] of [
   ["cancelReviewRequest", [2, 4]],
   ["reviewHistory", [3]],
   ["addReviewNote", [4]],
+  ["listWorkItems", [3]],
+  ["approveTaskGrant", [6]],
 ]) {
   CaseworkClient.prototype[method] = function (...args) {
     for (const index of indexes) {
@@ -96,4 +98,9 @@ for (const [method, indexes] of [
   };
 }
 
-module.exports = { CaseworkClient, CaseworkClientError };
+module.exports = {
+  CaseworkClient,
+  CaseworkClientError,
+  PrivateKeyJwt: breg.PrivateKeyJwt,
+  ProviderError: breg.BaseRegistryClientError,
+};

@@ -43,7 +43,7 @@ class OperationFailure extends Error {
   }
 }
 
-/** Create the narrow Requester operation set around maintained client bindings. */
+/** Create the bounded requester and task-inspection operations around maintained bindings. */
 export function createCaseworkOperations(loadBindings) {
   if (typeof loadBindings !== "function") {
     throw new CaseworkCallerError("Casework client loader is required", {
@@ -167,7 +167,120 @@ export function createCaseworkOperations(loadBindings) {
             input.cancellation,
           ),
       ),
+
+    listCaseworkWorkItems: (options = {}) =>
+      operation(
+        loadBindings,
+        options,
+        "caseworkWorkItems",
+        null,
+        (input) => {
+          requiredString(input.sourceProfile, "sourceProfile");
+          requiredObject(input.query, "query");
+        },
+        (client, auth, input) =>
+          client.listWorkItems(
+            auth.token,
+            auth.profile,
+            input.sourceProfile,
+            input.query,
+          ),
+      ),
+
+    getCaseworkWorkItem: (options = {}) =>
+      sourceItemOperation(loadBindings, options, "caseworkWorkItem", (client, auth, input) =>
+        client.getWorkItem(
+          auth.token,
+          auth.profile,
+          input.sourceProfile,
+          input.itemId,
+        )),
+
+    previewCaseworkTaskTemplates: (options = {}) =>
+      sourceItemOperation(loadBindings, options, "caseworkTaskTemplates", (client, auth, input) =>
+        client.previewTaskTemplates(
+          auth.token,
+          auth.profile,
+          input.sourceProfile,
+          input.itemId,
+        )),
+
+    listCaseworkTaskGrants: (options = {}) =>
+      sourceItemOperation(loadBindings, options, "caseworkTaskGrants", (client, auth, input) =>
+        client.listTaskGrants(
+          auth.token,
+          auth.profile,
+          input.sourceProfile,
+          input.itemId,
+        )),
+
+    approveCaseworkTaskGrant: (options = {}) =>
+      operation(
+        loadBindings,
+        options,
+        "caseworkTaskGrant",
+        null,
+        (input) => {
+          sourceItem(input);
+          requiredRevision(input.expectedRevision);
+          requiredString(input.idempotencyKey, "idempotencyKey");
+          requiredString(input.templateId, "templateId");
+          requiredString(input.templateVersion, "templateVersion");
+        },
+        (client, auth, input) =>
+          client.approveTaskGrant(
+            auth.token,
+            auth.profile,
+            input.sourceProfile,
+            input.itemId,
+            input.expectedRevision,
+            input.idempotencyKey,
+            {
+              templateId: input.templateId,
+              templateVersion: input.templateVersion,
+            },
+          ),
+      ),
+
+    revokeCaseworkTaskGrant: (options = {}) =>
+      operation(
+        loadBindings,
+        options,
+        "caseworkTaskRevocation",
+        null,
+        (input) => {
+          sourceItem(input);
+          requiredString(input.grantId, "grantId");
+        },
+        (client, auth, input) =>
+          client.revokeTaskGrant(
+            auth.token,
+            auth.profile,
+            input.sourceProfile,
+            input.itemId,
+            input.grantId,
+          ),
+      ),
+
+    caseworkTaskGrantStatus: (options = {}) =>
+      operation(
+        loadBindings,
+        options,
+        "caseworkTaskStatus",
+        null,
+        (input) => requiredString(input.grantId, "grantId"),
+        (client, auth, input) => client.taskGrantStatus(auth.token, input.grantId),
+      ),
   };
+}
+
+function sourceItemOperation(loadBindings, options, defaultName, invoke) {
+  return operation(loadBindings, options, defaultName, null, sourceItem, invoke);
+}
+
+function sourceItem(input) {
+  requiredString(input.sourceProfile, "sourceProfile");
+  requiredString(input.itemId, "itemId");
 }
 
 function operation(
@@ -182,6 +295,7 @@ function operation(
   return async (state) => {
     let resultName = defaultName;
     let ClientError;
+    let ProviderError;
     let result;
     try {
       const supplied = typeof options === "function" ? options(state) : options;
@@ -196,14 +310,20 @@ function operation(
       );
       resultName = requestedResultName(input.as, defaultName);
       validate(input);
-      const { CaseworkClient, CaseworkClientError } = loadBindings();
+      const {
+        CaseworkClient,
+        CaseworkClientError,
+        PrivateKeyJwt,
+        ProviderError: TokenError,
+      } = loadBindings();
       ClientError = CaseworkClientError;
+      ProviderError = TokenError;
       const configuration = caseworkConfiguration(state);
-      const auth = requesterAuthority(configuration);
+      const auth = await requesterAuthority(configuration, PrivateKeyJwt);
       const client = new CaseworkClient(pick(configuration, CLIENT_CONFIG_FIELDS));
       result = normalize(await invoke(client, auth, input));
     } catch (error) {
-      result = failure(error, ClientError, deduplicateBy);
+      result = failure(error, ClientError, ProviderError, deduplicateBy);
     }
 
     return {
@@ -239,11 +359,24 @@ function reviewResult(outcome) {
   throw new OperationFailure("failed", "result.invalid");
 }
 
-function failure(error, ClientError, deduplicateBy) {
+function failure(error, ClientError, ProviderError, deduplicateBy) {
   if (error instanceof OperationFailure) {
     return {
       branch: error.branch,
       problem: { code: error.code, retryable: false },
+    };
+  }
+  if (ProviderError && error instanceof ProviderError) {
+    const retryable = error.kind === "transport" || error.tokenKind === "transport";
+    const branch =
+      error.kind === "configuration" || error.kind === "invalid_request"
+        ? "invalid_request"
+        : retryable
+          ? "retryable_infrastructure"
+          : "authentication_failed";
+    return {
+      branch,
+      problem: { code: "casework.token", retryable },
     };
   }
   if (!ClientError || !(error instanceof ClientError)) {
@@ -312,7 +445,22 @@ function caseworkConfiguration(state) {
     throw new OperationFailure("invalid_request", "configuration.invalid");
   }
   boundedString(configuration.baseUrl, "configuration.casework.baseUrl", 2048);
-  boundedString(configuration.token, "configuration.casework.token", 16_384);
+  if (
+    configuration.authorization !== undefined &&
+    (!configuration.authorization ||
+      typeof configuration.authorization !== "object" ||
+      Array.isArray(configuration.authorization) ||
+      Object.keys(configuration.authorization).length !== 1 ||
+      configuration.authorization.privateKeyJwt === undefined)
+  ) {
+    throw new OperationFailure("invalid_request", "configuration.authentication");
+  }
+  if ((configuration.token === undefined) === (configuration.authorization === undefined)) {
+    throw new OperationFailure("invalid_request", "configuration.authentication");
+  }
+  if (configuration.token !== undefined) {
+    boundedString(configuration.token, "configuration.casework.token", 16_384);
+  }
   boundedString(configuration.profile, "configuration.casework.profile", 128);
   for (const field of [
     "requestTimeoutMilliseconds",
@@ -336,7 +484,18 @@ function caseworkConfiguration(state) {
   return configuration;
 }
 
-function requesterAuthority(configuration) {
+async function requesterAuthority(configuration, PrivateKeyJwt) {
+  if (configuration.authorization?.privateKeyJwt !== undefined) {
+    if (typeof PrivateKeyJwt !== "function") {
+      throw new OperationFailure("failed", "client.token_provider_unavailable");
+    }
+    return {
+      token: await new PrivateKeyJwt(
+        configuration.authorization.privateKeyJwt,
+      ).bearerToken(),
+      profile: configuration.profile,
+    };
+  }
   return { token: configuration.token, profile: configuration.profile };
 }
 
@@ -368,6 +527,16 @@ function boundedString(value, label, maximumLength) {
 function requiredObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new OperationFailure("invalid_request", `${label}.object_required`);
+  }
+  return value;
+}
+
+function requiredRevision(value) {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new OperationFailure(
+      "invalid_request",
+      "expectedRevision.safe_integer_required",
+    );
   }
   return value;
 }

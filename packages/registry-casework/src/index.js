@@ -16,4 +16,11 @@ export const {
   addReviewNote,
   listReviewHistory,
   cancelReviewRequest,
+  listCaseworkWorkItems,
+  getCaseworkWorkItem,
+  previewCaseworkTaskTemplates,
+  listCaseworkTaskGrants,
+  approveCaseworkTaskGrant,
+  revokeCaseworkTaskGrant,
+  caseworkTaskGrantStatus,
 } = operations;

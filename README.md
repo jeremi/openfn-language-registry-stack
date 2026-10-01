@@ -1,6 +1,9 @@
 # Registry Stack adaptors for OpenFn
 
-The BREG, Evidence, Relay V2 and private Casework adaptors target the published
+**Beta:** intended for supervised, self-hosted pilots. APIs and deployment
+configuration may change before 1.0.
+
+The BREG, Evidence, Relay V2 and Casework adaptors target the published
 `@registrystack/client@0.37.0`. Use matching 0.37 runtimes and tools for new
 integrations. Run `npm run check` to verify all four adaptors and their OpenFn
 composition. Relay and Casework now use their current native APIs; consult their

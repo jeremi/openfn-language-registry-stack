@@ -163,6 +163,18 @@ test("privateKeyJwt configuration reaches native validation without disclosing k
   assert.ok(!JSON.stringify(result.data).includes(key.d));
 });
 
+test("configuration schema preserves static, private-key, and exchange authorization", () => {
+  const schema = JSON.parse(
+    readFileSync(new URL("../configuration-schema.json", import.meta.url), "utf8"),
+  );
+  assert.deepEqual(
+    schema.properties.authorization.oneOf.map((variant) => variant.required[0]),
+    ["static", "privateKeyJwt", "exchange"],
+  );
+  assert.ok(schema.$defs.privateKeyJwt.properties.resource);
+  assert.ok(schema.$defs.privateKeyJwt.properties.scopes);
+});
+
 test("compiled OpenFn job composes native reads and writes and runtime removes credentials", async () => {
   const stub = await server(regular);
   try {

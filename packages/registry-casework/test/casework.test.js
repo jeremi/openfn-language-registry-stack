@@ -73,6 +73,13 @@ function fakeOperations(handlers = {}) {
     "addReviewNote",
     "reviewHistory",
     "cancelReviewRequest",
+    "listWorkItems",
+    "getWorkItem",
+    "previewTaskTemplates",
+    "listTaskGrants",
+    "approveTaskGrant",
+    "revokeTaskGrant",
+    "taskGrantStatus",
   ]) {
     FakeCaseworkClient.prototype[method] = async function (...args) {
       calls.push([method, ...args]);
@@ -107,7 +114,7 @@ function state(baseUrl = "https://casework.example.test/tenant") {
   };
 }
 
-test("adaptor exports only current Requester review operations", () => {
+test("adaptor exports current Requester review and bounded task operations", () => {
   assert.equal(typeof adaptor.fn, "function");
   assert.equal(typeof adaptor.execute, "function");
   for (const operation of [
@@ -118,6 +125,13 @@ test("adaptor exports only current Requester review operations", () => {
     "addReviewNote",
     "listReviewHistory",
     "cancelReviewRequest",
+    "listCaseworkWorkItems",
+    "getCaseworkWorkItem",
+    "previewCaseworkTaskTemplates",
+    "listCaseworkTaskGrants",
+    "approveCaseworkTaskGrant",
+    "revokeCaseworkTaskGrant",
+    "caseworkTaskGrantStatus",
   ]) {
     assert.equal(typeof adaptor[operation], "function");
   }
@@ -129,6 +143,7 @@ test("adaptor exports only current Requester review operations", () => {
     "claimReviewTask",
     "decideReviewTask",
     "listWorkItems",
+    "taskAssertion",
   ]) {
     assert.equal(removedOrStaff in adaptor, false);
   }
@@ -555,17 +570,155 @@ test("VM normalization refuses unsafe graphs before the native client sends", ()
   assert.equal(accessorRead, false);
 });
 
-test("package stays private and pins the published native client", () => {
+test("package pins the published native client and authentication schema", () => {
   const manifest = JSON.parse(
     readFileSync(new URL("../package.json", import.meta.url), "utf8"),
   );
   const schema = JSON.parse(
     readFileSync(new URL("../configuration-schema.json", import.meta.url), "utf8"),
   );
-  assert.equal(manifest.private, true);
   assert.equal(manifest.dependencies["@registrystack/client"], "0.37.0");
-  assert.deepEqual(schema.required, ["baseUrl", "token", "profile"]);
+  assert.deepEqual(schema.required, ["baseUrl", "profile"]);
+  assert.deepEqual(schema.oneOf, [
+    { required: ["token"] },
+    { required: ["authorization"] },
+  ]);
   assert.equal(schema.properties.token.writeOnly, true);
+});
+
+test("source task inspection and grants preserve held authority", async () => {
+  const { calls, operations } = fakeOperations();
+  let current = state();
+  current = await operations.listCaseworkWorkItems({
+    sourceProfile: "reviewer",
+    query: { view: "my_teams", limit: 20 },
+  })(current);
+  current = await operations.getCaseworkWorkItem({
+    sourceProfile: "reviewer",
+    itemId: REQUEST_ID,
+  })(current);
+  current = await operations.previewCaseworkTaskTemplates({
+    sourceProfile: "reviewer",
+    itemId: REQUEST_ID,
+  })(current);
+  current = await operations.listCaseworkTaskGrants({
+    sourceProfile: "reviewer",
+    itemId: REQUEST_ID,
+  })(current);
+  current = await operations.approveCaseworkTaskGrant({
+    sourceProfile: "reviewer",
+    itemId: REQUEST_ID,
+    expectedRevision: 7,
+    idempotencyKey: "approval-key-004",
+    templateId: "verify",
+    templateVersion: "1",
+  })(current);
+  current = await operations.revokeCaseworkTaskGrant({
+    sourceProfile: "reviewer",
+    itemId: REQUEST_ID,
+    grantId: "grant-1",
+  })(current);
+  current = await operations.caseworkTaskGrantStatus({ grantId: "grant-1" })(current);
+
+  assert.deepEqual(calls.filter(([method]) => method !== "constructor"), [
+    ["listWorkItems", "synthetic-requester-secret", "requester", "reviewer", { view: "my_teams", limit: 20 }],
+    ["getWorkItem", "synthetic-requester-secret", "requester", "reviewer", REQUEST_ID],
+    ["previewTaskTemplates", "synthetic-requester-secret", "requester", "reviewer", REQUEST_ID],
+    ["listTaskGrants", "synthetic-requester-secret", "requester", "reviewer", REQUEST_ID],
+    ["approveTaskGrant", "synthetic-requester-secret", "requester", "reviewer", REQUEST_ID, 7, "approval-key-004", { templateId: "verify", templateVersion: "1" }],
+    ["revokeTaskGrant", "synthetic-requester-secret", "requester", "reviewer", REQUEST_ID, "grant-1"],
+    ["taskGrantStatus", "synthetic-requester-secret", "grant-1"],
+  ]);
+  assert.equal(current.data.caseworkTaskStatus.branch, "succeeded");
+  assert.equal("taskAssertion" in operations, false);
+});
+
+test("private-key JWT authentication validates the operation before minting", async () => {
+  const calls = [];
+  class PrivateKeyJwt {
+    constructor(configuration) {
+      calls.push(["provider", configuration]);
+    }
+    async bearerToken() {
+      calls.push(["mint"]);
+      return "short-lived-token";
+    }
+  }
+  class CaseworkClient {
+    constructor(configuration) {
+      calls.push(["client", configuration]);
+    }
+    async reviewRequest(...args) {
+      calls.push(["read", ...args]);
+      return { kind: "complete", value: { requestId: REQUEST_ID } };
+    }
+  }
+  const operations = createCaseworkOperations(() => ({
+    CaseworkClient,
+    CaseworkClientError: FakeCaseworkClientError,
+    PrivateKeyJwt,
+  }));
+  const configured = state();
+  delete configured.configuration.casework.token;
+  configured.configuration.casework.authorization = {
+    privateKeyJwt: {
+      tokenEndpoint: "https://issuer.invalid/token",
+      clientId: "worker",
+      clientKey: { kty: "EC", kid: "test", alg: "ES256" },
+      resource: "urn:casework",
+      scopes: ["casework:request"],
+    },
+  };
+
+  const invalid = await operations.getReviewRequest({})(configured);
+  assert.equal(invalid.data.reviewRequest.branch, "invalid_request");
+  assert.equal(calls.length, 0);
+
+  const result = await operations.getReviewRequest({ requestId: REQUEST_ID })(configured);
+  assert.equal(result.data.reviewRequest.branch, "succeeded");
+  assert.deepEqual(calls.at(-1), [
+    "read",
+    "short-lived-token",
+    "requester",
+    REQUEST_ID,
+  ]);
+  assert.equal(JSON.stringify(result.data).includes("short-lived-token"), false);
+
+  configured.configuration.casework.token = "ambiguous";
+  const ambiguous = await operations.getReviewRequest({ requestId: REQUEST_ID })(configured);
+  assert.equal(ambiguous.data.reviewRequest.problem.code, "configuration.authentication");
+});
+
+test("native token provider failures are typed and redacted", async () => {
+  class ProviderError extends Error {
+    constructor() {
+      super("secret-token-response");
+      this.kind = "token";
+      this.tokenKind = "transport";
+    }
+  }
+  class PrivateKeyJwt {
+    async bearerToken() {
+      throw new ProviderError();
+    }
+  }
+  const operations = createCaseworkOperations(() => ({
+    CaseworkClient: class {},
+    CaseworkClientError: FakeCaseworkClientError,
+    ProviderError,
+    PrivateKeyJwt,
+  }));
+  const configured = state();
+  delete configured.configuration.casework.token;
+  configured.configuration.casework.authorization = {
+    privateKeyJwt: { tokenEndpoint: "https://issuer.invalid/token" },
+  };
+  const result = await operations.getReviewRequest({ requestId: REQUEST_ID })(configured);
+  assert.deepEqual(result.data.reviewRequest, {
+    branch: "retryable_infrastructure",
+    problem: { code: "casework.token", retryable: true },
+  });
+  assert.equal(JSON.stringify(result.data).includes("secret-token-response"), false);
 });
 
 test("oversized credentials are rejected without construction or disclosure", async () => {

@@ -23,7 +23,10 @@ Put the native SDK configuration in `state.configuration.breg`, or directly in
 
 Alternatively use `authorization: { privateKeyJwt: { tokenEndpoint, clientId,
 clientKey, audience } }`, where `clientKey` is a private JWK with `kty`, `kid`,
-and `alg`. Token and Registry TLS trust roots and timeouts are independent.
+and `alg`. The client also accepts `authorization: { exchange: ... }` for an
+immutable context and reviewed first-party or remote assertion source; the
+native provider performs the exchange and bounds its lifetime. Token and
+Registry TLS trust roots and timeouts are independent.
 The [configuration schema](./configuration-schema.json) lists the fields;
 the native SDK validates supported algorithms, bounds and URLs. Keep keys and
 tokens in OpenFn credentials, never event data or expressions.
