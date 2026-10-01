@@ -1,166 +1,153 @@
 # OpenFn Registry Relay Adaptor
 
-OpenFn helpers for reading protected Registry Relay APIs from workflows.
+OpenFn operations for Registry Relay 0.37.0. The adaptor uses the published
+`@registrystack/client` Relay namespace, so route construction, continuations,
+response validation, authentication, and protocol failures follow the maintained
+Relay V2 client contract.
 
-Use this package when a workflow is authorized to read registry rows, metadata,
-relationships, or aggregate outputs directly. Use
-`@openfn/language-registry-notary` when the workflow needs a trust decision or a
-certified value claim.
-
-When this repository is used as `OPENFN_ADAPTORS_REPO`, this package is loaded
-as:
-
-```text
-@openfn/language-registry-relay@local
-```
+Use Registry Relay for governed read-only publication. Use
+`@openfn/language-registry-evidence` when a workflow needs a minimized, signed
+assertion about a governed requirement.
 
 ## Configure
 
 Create an OpenFn credential with:
 
-- `relay_base_url`: Registry Relay service base URL.
-- `token`: bearer token or API key for the Relay caller credential.
+- `relay_base_url`: the Relay service base URL, including any deployment prefix.
+- `token`: a bearer access token whose verified claims select the permitted
+  purpose, scopes, and access profile.
 
-The adaptor sends credentials as `Authorization: Bearer <token>`. It does not
-send `x-api-key`.
+Existing credentials may keep `relay_token` as an alias for `token`.
 
-The examples below use the public Registry Stack lab at
-`https://lab.registrystack.org`. The lab publishes current credential metadata
-at `https://lab.registrystack.org/api/lab.json`; use `agri-row-reader` for row
-reads, `agri-aggregate-reader` for aggregate reads, `agri-metadata` for dataset
-discovery, and `agri-evidence-only` for evidence offering discovery.
+The adaptor also accepts the native client configuration under
+`configuration.relay`. That form supports the client's static,
+`privateKeyJwt`, and exchange authorization modes. Do not combine it with the
+two legacy top-level fields.
 
-## Read One Record
+## Read one record
 
 ```js
 execute(
   getRecord({
-    dataset: "agri_registry",
-    entity: "farmer",
-    id: dataValue("farmer_id"),
-    purpose: "https://demo.example.gov/purpose/nagdi/climate-smart-input-support",
-    fields: ["id", "district", "registration_status"],
+    resource: "farmers",
+    recordIdentifier: dataValue("farmer_id"),
+    accessProfile: "programme-reader",
+    fields: ["district", "registrationStatus"],
     as: "farmer",
     redactDataPaths: ["farmer_id"],
   }),
-
   fn((state) => {
-    const farmer = state.data.farmer.record;
-
+    const record = state.data.farmer.value.data;
     return {
       ...state,
       data: {
         ...state.data,
-        decision_input: {
-          farmer_id: farmer.id,
-          district: farmer.district,
-          relay_request_id: state.data.farmer.request_id,
-        },
+        district: record.domainData.district,
       },
     };
   }),
 );
 ```
 
-## List Records
+`getRecord` accepts `resource`, `recordIdentifier`, optional `fields`,
+`accessProfile`, `format`, and `etag`.
 
-Collection reads require an explicit `limit` and at least one filter unless
-`allowUnfiltered: true` is set.
+## List and continue records
 
 ```js
 execute(
   listRecords({
-    dataset: "agri_registry",
-    entity: "farmer",
-    purpose: "https://demo.example.gov/purpose/nagdi/climate-smart-input-support",
-    filters: {
-      district: "north",
-      "id.in": ["FARMER-1001", "FARMER-1002"],
-    },
-    fields: ["id", "district", "registration_status"],
-    limit: 50,
-    as: "farmers",
+    resource: "farmers",
+    accessProfile: "programme-reader",
+    fields: ["district", "registrationStatus"],
+    filters: { district: "north" },
+    pageSize: 50,
+    as: "farmer_page",
   }),
+  continueList((state) => ({
+    continuation: state.data.farmer_page.continuation,
+    as: "next_farmer_page",
+  })),
 );
 ```
 
-## Query An Aggregate
+Continuations are opaque client values. Pass the complete returned object to
+`continueList` or `continueResources`; do not copy its cursor into a new first
+page request.
+
+## Lookup a record
+
+```js
+lookupRecord({
+  resource: "farmers",
+  lookup: "by-local-identifier",
+  selectors: { localIdentifier: dataValue("local_identifier") },
+  accessProfile: "programme-reader",
+  as: "farmer",
+});
+```
+
+Lookup selector values are strings, booleans, or safe integers. The governed
+lookup name and selector members must match the compiled Relay resource.
+
+## Metadata
 
 ```js
 execute(
-  queryAggregate({
-    dataset: "agri_registry",
-    aggregate: "voucher_opportunities_by_district_crop_risk_input",
-    purpose: "https://demo.example.gov/purpose/nagdi/program-monitoring",
-    dimensions: ["district_code"],
-    measures: ["eligible_opportunity_count"],
-    filters: { season: ["2026A"] },
-    maxRows: 100,
-    as: "district_summary",
-  }),
-
-  fn((state) => {
-    const observations = state.data.district_summary.observations;
-
-    return {
-      ...state,
-      data: {
-        ...state.data,
-        north_voucher_opportunities:
-          observations.find((row) => row.district_code === "north")?.eligible_opportunity_count ?? 0,
-      },
-    };
-  }),
+  getServiceMetadata({ as: "service" }),
+  listResources({ pageSize: 50, as: "resources" }),
+  getResource({ resource: "farmers", as: "farmer_resource" }),
 );
 ```
 
-## Discovery
+Service metadata carries the published capability inventory. Resource metadata
+describes one governed resource and the operations Relay actually exposes.
+
+## Aggregate data
+
+Relay 0.37 publishes aggregate data through its SDMX 2.1 surface:
 
 ```js
-execute(
-  discoverDatasets({ as: "catalog" }),
-  getEntitySchema({
-    dataset: "agri_registry",
-    entity: "farmer",
-    as: "farmer_schema",
-  }),
-  listEvidenceOfferings({ as: "evidence_offerings" }),
-);
+queryAggregate({
+  agency: "AGENCY",
+  resource: "FARM_ACTIVITY",
+  version: "1.0.0",
+  key: "A.NORTH",
+  constraints: { TIME_PERIOD: "ge:2025+le:2026" },
+  offset: 0,
+  limit: 100,
+  dimensionAtObservation: "AllDimensions",
+  format: "json",
+  as: "activity",
+});
 ```
 
-## Result Branches
+The successful result preserves `body` as UTF-8 text and `mediaType` from the
+validated native response. CSV remains text; JSON is not reparsed into an
+unvalidated shape.
 
-Every helper writes its result under `state.data[as]`. If `as` is omitted, the
-default names are `record`, `records`, `relationship`, `aggregate`, `datasets`,
-`entity_schema`, or `evidence_offerings`.
+## Results and failures
 
-Common branches:
+Every operation writes under `state.data[as]` and keeps `configuration` for
+later operations in the same OpenFn job. OpenFn removes credentials at the job
+boundary.
 
-- `succeeded`
-- `not_modified`
-- `not_found`
+Successful results use `branch: "succeeded"`, the native `value` or raw
+`body`, `traceId`, optional `etag`, and optional `continuation`. A matching ETag
+uses `branch: "not_modified"`.
+
+Failures expose typed, value-free facts only:
+
+- `invalid_request`
 - `auth_failed`
-- `forbidden`
-- `filter_required`
-- `cursor_invalid`
+- `denied`
+- `not_found`
+- `conflict`
+- `protocol_failed`
 - `retryable_infrastructure`
 - `failed`
 
-Problem Details are reduced to safe fields: `code`, `status`, `title`, and
-`retryable`. The adaptor does not expose Problem Details `detail`.
-
-## Guardrails
-
-- Row, relationship, and aggregate helpers require `purpose`.
-- `listRecords` requires `limit` and filters unless `allowUnfiltered: true`.
-- Query values support OpenFn references such as `dataValue("farmer_id")`, plus
-  `{ valueFrom: "farmer_id" }` for simple path-based lookup.
-- `X-Request-Id` uses `state.data.request_id` when present.
-- `traceparent` is forwarded when `state.data.traceparent` is present.
-- `ETag`, `Retry-After`, request id, and pagination cursors are preserved.
-- Credentials, raw request material, and `configuration` are removed from final
-  state.
-
-Relay is a protected consultation API. It can publish evidence offerings, but it
-does not evaluate trust decisions. Use the Registry Notary adaptor for claim
-evaluation and certified value claims.
+The adaptor never returns the native error message or a Problem Details body.
+Its `problem` contains only a typed client failure code, status, and retryable flag;
+typed `traceId`, `retryAfterSeconds`, `transportKind`, and `tokenKind` are kept
+when the client supplies them.

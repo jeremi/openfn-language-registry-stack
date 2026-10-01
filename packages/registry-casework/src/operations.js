@@ -18,6 +18,11 @@ const SAFE_VALIDATION_REASONS = new Set([
   "outcome_not_declared",
   "reason_required",
   "text_invalid",
+  "result_not_declared",
+  "result_required",
+  "field_not_declared",
+  "constraint_invalid",
+  "constraint_violated",
 ]);
 const RESULT_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const SAFE_CODE = /^[a-z0-9][a-z0-9._-]{0,127}$/;
@@ -47,88 +52,133 @@ export function createCaseworkOperations(loadBindings) {
   }
 
   return {
-    createCaseworkItem: (options = {}) =>
-      operation(loadBindings, options, "caseworkCreated", null, (client, auth, input) =>
-        client.createHostedItem(
-          auth.token,
-          auth.profile,
-          requiredString(input.idempotencyKey, "idempotencyKey"),
-          {
-            kind: requiredString(input.kind, "kind"),
-            requesterReference: requiredString(
-              input.requesterReference,
-              "requesterReference",
-            ),
-            display: requiredObject(input.display, "display"),
-          },
-        ),
-      ),
-
-    getCaseworkItem: (options = {}) =>
-      operation(loadBindings, options, "caseworkItem", null, (client, auth, input) =>
-        client.getHostedItem(
-          auth.token,
-          auth.profile,
-          requiredString(input.itemId, "itemId"),
-        ),
-      ),
-
-    addCaseworkNote: (options = {}) =>
-      operation(loadBindings, options, "caseworkNote", null, (client, auth, input) =>
-        client.addHostedNote(
-          auth.token,
-          auth.profile,
-          requiredString(input.itemId, "itemId"),
-          requiredRevision(input.expectedRevision),
-          requiredString(input.idempotencyKey, "idempotencyKey"),
-          { note: requiredString(input.note, "note") },
-        ),
-      ),
-
-    listCaseworkNotes: (options = {}) =>
-      operation(loadBindings, options, "caseworkNotes", "noteId", (client, auth, input) =>
-        client.requesterHostedNotes(
-          auth.token,
-          auth.profile,
-          requiredString(input.itemId, "itemId"),
-          pageQuery(input),
-        ),
-      ),
-
-    cancelCaseworkItem: (options = {}) =>
+    createOrRecoverReviewRequest: (options = {}) =>
       operation(
         loadBindings,
         options,
-        "caseworkCancellation",
+        "reviewRequestAccepted",
         null,
+        (input) => {
+          requiredObject(input.request, "request");
+          requiredString(input.expectedSubmissionDigest, "expectedSubmissionDigest");
+          requiredString(input.idempotencyKey, "idempotencyKey");
+        },
         (client, auth, input) =>
-          client.cancelHostedItem(
+          client.createOrRecoverReviewRequest(
             auth.token,
             auth.profile,
-            requiredString(input.itemId, "itemId"),
-            requiredRevision(input.expectedRevision),
-            requiredString(input.idempotencyKey, "idempotencyKey"),
-            { reason: requiredString(input.reason, "reason") },
+            input.idempotencyKey,
+            input.request,
+            input.expectedSubmissionDigest,
           ),
       ),
 
-    pollCaseworkResults: (options = {}) =>
+    getReviewRequest: (options = {}) =>
       operation(
         loadBindings,
         options,
-        "caseworkTerminal",
-        "eventId",
+        "reviewRequest",
+        null,
+        (input) => requiredString(input.requestId, "requestId"),
         (client, auth, input) =>
-          client.hostedTerminalItems(
+          client.reviewRequest(auth.token, auth.profile, input.requestId),
+      ),
+
+    getReviewResult: (options = {}) =>
+      operation(
+        loadBindings,
+        options,
+        "reviewResult",
+        null,
+        (input) => requiredObject(input.accepted, "accepted"),
+        (client, auth, input) =>
+          client.reviewResult(auth.token, auth.profile, input.accepted),
+        reviewResult,
+      ),
+
+    listReviewResults: (options = {}) =>
+      operation(
+        loadBindings,
+        options,
+        "reviewResults",
+        "eventId",
+        pageQuery,
+        (client, auth, input) =>
+          client.reviewResults(auth.token, auth.profile, pageQuery(input)),
+      ),
+
+    addReviewNote: (options = {}) =>
+      operation(
+        loadBindings,
+        options,
+        "reviewNote",
+        null,
+        (input) => {
+          requiredString(input.requestId, "requestId");
+          requiredString(input.idempotencyKey, "idempotencyKey");
+          requiredString(input.note, "note");
+        },
+        (client, auth, input) =>
+          client.addReviewNote(
             auth.token,
             auth.profile,
+            input.requestId,
+            input.idempotencyKey,
+            { audience: "requester", note: input.note },
+          ),
+      ),
+
+    listReviewHistory: (options = {}) =>
+      operation(
+        loadBindings,
+        options,
+        "reviewHistory",
+        "eventId",
+        (input) => {
+          requiredString(input.requestId, "requestId");
+          pageQuery(input);
+        },
+        (client, auth, input) =>
+          client.reviewHistory(
+            auth.token,
+            auth.profile,
+            input.requestId,
             pageQuery(input),
+          ),
+      ),
+
+    cancelReviewRequest: (options = {}) =>
+      operation(
+        loadBindings,
+        options,
+        "reviewCancellation",
+        null,
+        (input) => {
+          requiredObject(input.accepted, "accepted");
+          requiredString(input.idempotencyKey, "idempotencyKey");
+          requiredObject(input.cancellation, "cancellation");
+        },
+        (client, auth, input) =>
+          client.cancelReviewRequest(
+            auth.token,
+            auth.profile,
+            input.accepted,
+            input.idempotencyKey,
+            input.cancellation,
           ),
       ),
   };
 }
 
-function operation(loadBindings, options, defaultName, deduplicateBy, invoke) {
+function operation(
+  loadBindings,
+  options,
+  defaultName,
+  deduplicateBy,
+  validate,
+  invoke,
+  normalize = completeResult,
+) {
   return async (state) => {
     let resultName = defaultName;
     let ClientError;
@@ -145,19 +195,13 @@ function operation(loadBindings, options, defaultName, deduplicateBy, invoke) {
         ]),
       );
       resultName = requestedResultName(input.as, defaultName);
+      validate(input);
       const { CaseworkClient, CaseworkClientError } = loadBindings();
       ClientError = CaseworkClientError;
       const configuration = caseworkConfiguration(state);
       const auth = requesterAuthority(configuration);
-      const client = new CaseworkClient(
-        pick(configuration, CLIENT_CONFIG_FIELDS),
-      );
-      const outcome = await invoke(client, auth, input);
-      result = {
-        branch: "succeeded",
-        value: outcome.value,
-        ...(safeIdentifier(outcome.traceId) ? { traceId: outcome.traceId } : {}),
-      };
+      const client = new CaseworkClient(pick(configuration, CLIENT_CONFIG_FIELDS));
+      result = normalize(await invoke(client, auth, input));
     } catch (error) {
       result = failure(error, ClientError, deduplicateBy);
     }
@@ -170,6 +214,29 @@ function operation(loadBindings, options, defaultName, deduplicateBy, invoke) {
       },
     };
   };
+}
+
+function completeResult(outcome) {
+  return {
+    branch: "succeeded",
+    value: outcome.value,
+    ...(safeIdentifier(outcome.traceId) ? { traceId: outcome.traceId } : {}),
+  };
+}
+
+function reviewResult(outcome) {
+  const trace = safeIdentifier(outcome.traceId) ? { traceId: outcome.traceId } : {};
+  if (outcome.kind === "available") {
+    return { branch: "available", value: outcome.value, ...trace };
+  }
+  if (
+    outcome.kind === "pending" ||
+    outcome.kind === "concealed_or_unknown" ||
+    outcome.kind === "expired"
+  ) {
+    return { branch: outcome.kind, value: null, ...trace };
+  }
+  throw new OperationFailure("failed", "result.invalid");
 }
 
 function failure(error, ClientError, deduplicateBy) {
@@ -270,10 +337,7 @@ function caseworkConfiguration(state) {
 }
 
 function requesterAuthority(configuration) {
-  return {
-    token: configuration.token,
-    profile: configuration.profile,
-  };
+  return { token: configuration.token, profile: configuration.profile };
 }
 
 function pageQuery(input) {
@@ -299,22 +363,11 @@ function boundedString(value, label, maximumLength) {
   if (value.length > maximumLength) {
     throw new OperationFailure("invalid_request", `${label}.too_long`);
   }
-  return value;
 }
 
 function requiredObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new OperationFailure("invalid_request", `${label}.object_required`);
-  }
-  return value;
-}
-
-function requiredRevision(value) {
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new OperationFailure(
-      "invalid_request",
-      "expectedRevision.safe_integer_required",
-    );
   }
   return value;
 }

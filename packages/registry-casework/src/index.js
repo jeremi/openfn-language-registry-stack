@@ -6,23 +6,14 @@ export * from "@openfn/language-common";
 export { CaseworkCallerError } from "./operations.js";
 
 const require = createRequire(import.meta.url);
-const operations = createCaseworkOperations(() => {
-  const bindings = require("@registrystack/client").casework;
-  if (
-    !bindings ||
-    typeof bindings.CaseworkClient !== "function" ||
-    typeof bindings.CaseworkClientError !== "function"
-  ) {
-    throw new Error("Registry Casework client bindings are unavailable");
-  }
-  return bindings;
-});
+const operations = createCaseworkOperations(() => require("./native.cjs"));
 
 export const {
-  createCaseworkItem,
-  getCaseworkItem,
-  addCaseworkNote,
-  listCaseworkNotes,
-  cancelCaseworkItem,
-  pollCaseworkResults,
+  createOrRecoverReviewRequest,
+  getReviewRequest,
+  getReviewResult,
+  listReviewResults,
+  addReviewNote,
+  listReviewHistory,
+  cancelReviewRequest,
 } = operations;
