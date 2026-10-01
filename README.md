@@ -3,20 +3,31 @@
 **Beta:** intended for supervised, self-hosted pilots. APIs and deployment
 configuration may change before 1.0.
 
+The BREG, Evidence, Relay V2 and Casework adaptors target the published
+`@registrystack/client@0.37.0`. Use matching 0.37 runtimes and tools for new
+integrations. Run `npm run check` to verify all four adaptors and their OpenFn
+composition. Relay and Casework now use their current native APIs; consult their
+package READMEs when migrating older jobs.
+
+The existing container pilot below is a retained **Registry Stack 0.27.0**
+deployment with its own [dependency lock](deployment/package-lock.json).
+It demonstrates the older Mint and BREG-owned review contracts. Its build does
+not install the current 0.37 client graph. Upgrading that deployment requires
+ThunderID, Casework review, and regenerated runtime/package configuration;
+changing image tags alone is insufficient. Existing pilot data is preserved.
+
 A self-hosted synthetic pilot connecting upstream OpenFn Lightning to Registry
 Stack Base Registry Engine (BREG) and signed Evidence. It demonstrates registration,
 reviewed correction, and an idempotent downstream update containing a verified
 Boolean. All supplied people, holding names, identifiers and credentials are for
 an isolated local pilot.
 
-The maintained pilot uses:
+The retained 0.27 pilot uses:
 
 - [Registry Evidence adaptor](packages/registry-evidence), using the `evidence`
-  namespace of the published `@registrystack/client@0.32.0`.
+  namespace of the published `@registrystack/client@0.27.0`.
 - [Registry BREG adaptor](packages/registry-breg), using the same package's `breg`
   namespace for metadata-selected writes, exact lookups and lifecycle actions.
-- [Registry Casework adaptor](packages/registry-casework), using the same package's
-  `casework` namespace for hosted intake, requester polling and task grants.
 - Upstream Lightning 2.18.2 and websocket worker 1.29.0, packaged with Node
   24.19.0 on glibc and local adaptors. No OpenFn source patch is required.
 - Separate BREG and Lightning PostgreSQL databases, Mint, Evidence, an
@@ -24,12 +35,6 @@ The maintained pilot uses:
 
 [Image identities](deployment/images.lock.json), the npm lockfile, and bootstrap
 [tool checksums](deployment/tools.sha256) pin the delivered dependencies.
-
-Relay v1 support has been removed. The `@openfn/language-registry-relay`
-package, including its helpers, credential schema and example job, is no longer
-available through `OPENFN_ADAPTORS_REPO`. Existing workflows using it must be
-updated before adopting this checkout. This repository does not currently
-provide a Relay v2 adaptor.
 
 ## What the three workflows do
 

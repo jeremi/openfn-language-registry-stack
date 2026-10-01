@@ -18,6 +18,11 @@ const SAFE_VALIDATION_REASONS = new Set([
   "outcome_not_declared",
   "reason_required",
   "text_invalid",
+  "result_not_declared",
+  "result_required",
+  "field_not_declared",
+  "constraint_invalid",
+  "constraint_violated",
 ]);
 const RESULT_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const SAFE_CODE = /^[a-z0-9][a-z0-9._-]{0,127}$/;
@@ -38,7 +43,7 @@ class OperationFailure extends Error {
   }
 }
 
-/** Create the narrow Requester operation set around maintained client bindings. */
+/** Create the bounded requester and task-inspection operations around maintained bindings. */
 export function createCaseworkOperations(loadBindings) {
   if (typeof loadBindings !== "function") {
     throw new CaseworkCallerError("Casework client loader is required", {
@@ -47,111 +52,246 @@ export function createCaseworkOperations(loadBindings) {
   }
 
   return {
-    createCaseworkItem: (options = {}) =>
-      operation(loadBindings, options, "caseworkCreated", null, (client, auth, input) =>
-        client.createHostedItem(
-          auth.token,
-          auth.profile,
-          requiredString(input.idempotencyKey, "idempotencyKey"),
-          {
-            kind: requiredString(input.kind, "kind"),
-            requesterReference: requiredString(
-              input.requesterReference,
-              "requesterReference",
-            ),
-            display: requiredObject(input.display, "display"),
-          },
-        ),
-      ),
-
-    getCaseworkItem: (options = {}) =>
-      operation(loadBindings, options, "caseworkItem", null, (client, auth, input) =>
-        client.getHostedItem(
-          auth.token,
-          auth.profile,
-          requiredString(input.itemId, "itemId"),
-        ),
-      ),
-
-    addCaseworkNote: (options = {}) =>
-      operation(loadBindings, options, "caseworkNote", null, (client, auth, input) =>
-        client.addHostedNote(
-          auth.token,
-          auth.profile,
-          requiredString(input.itemId, "itemId"),
-          requiredRevision(input.expectedRevision),
-          requiredString(input.idempotencyKey, "idempotencyKey"),
-          { note: requiredString(input.note, "note") },
-        ),
-      ),
-
-    listCaseworkNotes: (options = {}) =>
-      operation(loadBindings, options, "caseworkNotes", "noteId", (client, auth, input) =>
-        client.requesterHostedNotes(
-          auth.token,
-          auth.profile,
-          requiredString(input.itemId, "itemId"),
-          pageQuery(input),
-        ),
-      ),
-
-    cancelCaseworkItem: (options = {}) =>
+    createOrRecoverReviewRequest: (options = {}) =>
       operation(
         loadBindings,
         options,
-        "caseworkCancellation",
+        "reviewRequestAccepted",
         null,
+        (input) => {
+          requiredObject(input.request, "request");
+          requiredString(input.expectedSubmissionDigest, "expectedSubmissionDigest");
+          requiredString(input.idempotencyKey, "idempotencyKey");
+        },
         (client, auth, input) =>
-          client.cancelHostedItem(
+          client.createOrRecoverReviewRequest(
             auth.token,
             auth.profile,
-            requiredString(input.itemId, "itemId"),
-            requiredRevision(input.expectedRevision),
-            requiredString(input.idempotencyKey, "idempotencyKey"),
-            { reason: requiredString(input.reason, "reason") },
+            input.idempotencyKey,
+            input.request,
+            input.expectedSubmissionDigest,
           ),
       ),
 
-    pollCaseworkResults: (options = {}) =>
+    getReviewRequest: (options = {}) =>
       operation(
         loadBindings,
         options,
-        "caseworkTerminal",
-        "eventId",
+        "reviewRequest",
+        null,
+        (input) => requiredString(input.requestId, "requestId"),
         (client, auth, input) =>
-          client.hostedTerminalItems(
+          client.reviewRequest(auth.token, auth.profile, input.requestId),
+      ),
+
+    getReviewResult: (options = {}) =>
+      operation(
+        loadBindings,
+        options,
+        "reviewResult",
+        null,
+        (input) => requiredObject(input.accepted, "accepted"),
+        (client, auth, input) =>
+          client.reviewResult(auth.token, auth.profile, input.accepted),
+        reviewResult,
+      ),
+
+    listReviewResults: (options = {}) =>
+      operation(
+        loadBindings,
+        options,
+        "reviewResults",
+        "eventId",
+        pageQuery,
+        (client, auth, input) =>
+          client.reviewResults(auth.token, auth.profile, pageQuery(input)),
+      ),
+
+    addReviewNote: (options = {}) =>
+      operation(
+        loadBindings,
+        options,
+        "reviewNote",
+        null,
+        (input) => {
+          requiredString(input.requestId, "requestId");
+          requiredString(input.idempotencyKey, "idempotencyKey");
+          requiredString(input.note, "note");
+        },
+        (client, auth, input) =>
+          client.addReviewNote(
             auth.token,
             auth.profile,
+            input.requestId,
+            input.idempotencyKey,
+            { audience: "requester", note: input.note },
+          ),
+      ),
+
+    listReviewHistory: (options = {}) =>
+      operation(
+        loadBindings,
+        options,
+        "reviewHistory",
+        "eventId",
+        (input) => {
+          requiredString(input.requestId, "requestId");
+          pageQuery(input);
+        },
+        (client, auth, input) =>
+          client.reviewHistory(
+            auth.token,
+            auth.profile,
+            input.requestId,
             pageQuery(input),
           ),
       ),
+
+    cancelReviewRequest: (options = {}) =>
+      operation(
+        loadBindings,
+        options,
+        "reviewCancellation",
+        null,
+        (input) => {
+          requiredObject(input.accepted, "accepted");
+          requiredString(input.idempotencyKey, "idempotencyKey");
+          requiredObject(input.cancellation, "cancellation");
+        },
+        (client, auth, input) =>
+          client.cancelReviewRequest(
+            auth.token,
+            auth.profile,
+            input.accepted,
+            input.idempotencyKey,
+            input.cancellation,
+          ),
+      ),
+
     listCaseworkWorkItems: (options = {}) =>
-      operation(loadBindings, options, "caseworkWorkItems", null, (client, auth, input) =>
-        client.listWorkItems(auth.token, auth.profile, requiredString(input.sourceProfile, "sourceProfile"), requiredObject(input.query, "query"))),
+      operation(
+        loadBindings,
+        options,
+        "caseworkWorkItems",
+        null,
+        (input) => {
+          requiredString(input.sourceProfile, "sourceProfile");
+          requiredObject(input.query, "query");
+        },
+        (client, auth, input) =>
+          client.listWorkItems(
+            auth.token,
+            auth.profile,
+            input.sourceProfile,
+            input.query,
+          ),
+      ),
+
     getCaseworkWorkItem: (options = {}) =>
-      operation(loadBindings, options, "caseworkWorkItem", null, (client, auth, input) =>
-        client.getWorkItem(auth.token, auth.profile, requiredString(input.sourceProfile, "sourceProfile"), requiredString(input.itemId, "itemId"))),
+      sourceItemOperation(loadBindings, options, "caseworkWorkItem", (client, auth, input) =>
+        client.getWorkItem(
+          auth.token,
+          auth.profile,
+          input.sourceProfile,
+          input.itemId,
+        )),
+
     previewCaseworkTaskTemplates: (options = {}) =>
-      operation(loadBindings, options, "caseworkTaskTemplates", null, (client, auth, input) =>
-        client.previewTaskTemplates(auth.token, auth.profile, requiredString(input.sourceProfile, "sourceProfile"), requiredString(input.itemId, "itemId"))),
+      sourceItemOperation(loadBindings, options, "caseworkTaskTemplates", (client, auth, input) =>
+        client.previewTaskTemplates(
+          auth.token,
+          auth.profile,
+          input.sourceProfile,
+          input.itemId,
+        )),
+
     listCaseworkTaskGrants: (options = {}) =>
-      operation(loadBindings, options, "caseworkTaskGrants", null, (client, auth, input) =>
-        client.listTaskGrants(auth.token, auth.profile, requiredString(input.sourceProfile, "sourceProfile"), requiredString(input.itemId, "itemId"))),
+      sourceItemOperation(loadBindings, options, "caseworkTaskGrants", (client, auth, input) =>
+        client.listTaskGrants(
+          auth.token,
+          auth.profile,
+          input.sourceProfile,
+          input.itemId,
+        )),
+
     approveCaseworkTaskGrant: (options = {}) =>
-      operation(loadBindings, options, "caseworkTaskGrant", null, (client, auth, input) =>
-        client.approveTaskGrant(auth.token, auth.profile, requiredString(input.sourceProfile, "sourceProfile"), requiredString(input.itemId, "itemId"),
-          requiredRevision(input.expectedRevision), requiredString(input.idempotencyKey, "idempotencyKey"),
-          { templateId: requiredString(input.templateId, "templateId"), templateVersion: requiredString(input.templateVersion, "templateVersion") })),
+      operation(
+        loadBindings,
+        options,
+        "caseworkTaskGrant",
+        null,
+        (input) => {
+          sourceItem(input);
+          requiredRevision(input.expectedRevision);
+          requiredString(input.idempotencyKey, "idempotencyKey");
+          requiredString(input.templateId, "templateId");
+          requiredString(input.templateVersion, "templateVersion");
+        },
+        (client, auth, input) =>
+          client.approveTaskGrant(
+            auth.token,
+            auth.profile,
+            input.sourceProfile,
+            input.itemId,
+            input.expectedRevision,
+            input.idempotencyKey,
+            {
+              templateId: input.templateId,
+              templateVersion: input.templateVersion,
+            },
+          ),
+      ),
+
     revokeCaseworkTaskGrant: (options = {}) =>
-      operation(loadBindings, options, "caseworkTaskRevocation", null, (client, auth, input) =>
-        client.revokeTaskGrant(auth.token, auth.profile, requiredString(input.sourceProfile, "sourceProfile"), requiredString(input.itemId, "itemId"), requiredString(input.grantId, "grantId"))),
+      operation(
+        loadBindings,
+        options,
+        "caseworkTaskRevocation",
+        null,
+        (input) => {
+          sourceItem(input);
+          requiredString(input.grantId, "grantId");
+        },
+        (client, auth, input) =>
+          client.revokeTaskGrant(
+            auth.token,
+            auth.profile,
+            input.sourceProfile,
+            input.itemId,
+            input.grantId,
+          ),
+      ),
+
     caseworkTaskGrantStatus: (options = {}) =>
-      operation(loadBindings, options, "caseworkTaskStatus", null, (client, auth, input) =>
-        client.taskGrantStatus(auth.token, requiredString(input.grantId, "grantId"))),
+      operation(
+        loadBindings,
+        options,
+        "caseworkTaskStatus",
+        null,
+        (input) => requiredString(input.grantId, "grantId"),
+        (client, auth, input) => client.taskGrantStatus(auth.token, input.grantId),
+      ),
   };
 }
 
-function operation(loadBindings, options, defaultName, deduplicateBy, invoke) {
+function sourceItemOperation(loadBindings, options, defaultName, invoke) {
+  return operation(loadBindings, options, defaultName, null, sourceItem, invoke);
+}
+
+function sourceItem(input) {
+  requiredString(input.sourceProfile, "sourceProfile");
+  requiredString(input.itemId, "itemId");
+}
+
+function operation(
+  loadBindings,
+  options,
+  defaultName,
+  deduplicateBy,
+  validate,
+  invoke,
+  normalize = completeResult,
+) {
   return async (state) => {
     let resultName = defaultName;
     let ClientError;
@@ -169,21 +309,19 @@ function operation(loadBindings, options, defaultName, deduplicateBy, invoke) {
         ]),
       );
       resultName = requestedResultName(input.as, defaultName);
-      const { CaseworkClient, CaseworkClientError, ProviderError: TokenError } = loadBindings();
+      validate(input);
+      const {
+        CaseworkClient,
+        CaseworkClientError,
+        PrivateKeyJwt,
+        ProviderError: TokenError,
+      } = loadBindings();
       ClientError = CaseworkClientError;
       ProviderError = TokenError;
       const configuration = caseworkConfiguration(state);
-      validateInputs(defaultName, input);
-      const auth = await requesterAuthority(configuration, loadBindings);
-      const client = new CaseworkClient(
-        pick(configuration, CLIENT_CONFIG_FIELDS),
-      );
-      const outcome = await invoke(client, auth, input);
-      result = {
-        branch: "succeeded",
-        value: outcome.value,
-        ...(safeIdentifier(outcome.traceId) ? { traceId: outcome.traceId } : {}),
-      };
+      const auth = await requesterAuthority(configuration, PrivateKeyJwt);
+      const client = new CaseworkClient(pick(configuration, CLIENT_CONFIG_FIELDS));
+      result = normalize(await invoke(client, auth, input));
     } catch (error) {
       result = failure(error, ClientError, ProviderError, deduplicateBy);
     }
@@ -198,29 +336,27 @@ function operation(loadBindings, options, defaultName, deduplicateBy, invoke) {
   };
 }
 
-function validateInputs(name, input) {
-  if (["caseworkCreated", "caseworkNote", "caseworkCancellation", "caseworkTaskGrant"].includes(name)) {
-    requiredString(input.idempotencyKey, "idempotencyKey");
+function completeResult(outcome) {
+  return {
+    branch: "succeeded",
+    value: outcome.value,
+    ...(safeIdentifier(outcome.traceId) ? { traceId: outcome.traceId } : {}),
+  };
+}
+
+function reviewResult(outcome) {
+  const trace = safeIdentifier(outcome.traceId) ? { traceId: outcome.traceId } : {};
+  if (outcome.kind === "available") {
+    return { branch: "available", value: outcome.value, ...trace };
   }
-  if (["caseworkItem", "caseworkNote", "caseworkNotes", "caseworkCancellation", "caseworkWorkItem", "caseworkTaskTemplates",
-    "caseworkTaskGrants", "caseworkTaskGrant", "caseworkTaskRevocation"].includes(name)) requiredString(input.itemId, "itemId");
-  if (["caseworkWorkItems", "caseworkWorkItem", "caseworkTaskTemplates", "caseworkTaskGrants", "caseworkTaskGrant",
-    "caseworkTaskRevocation"].includes(name)) requiredString(input.sourceProfile, "sourceProfile");
-  if (["caseworkNote", "caseworkCancellation", "caseworkTaskGrant"].includes(name)) requiredRevision(input.expectedRevision);
-  if (name === "caseworkCreated") {
-    requiredString(input.kind, "kind");
-    requiredString(input.requesterReference, "requesterReference");
-    requiredObject(input.display, "display");
+  if (
+    outcome.kind === "pending" ||
+    outcome.kind === "concealed_or_unknown" ||
+    outcome.kind === "expired"
+  ) {
+    return { branch: outcome.kind, value: null, ...trace };
   }
-  if (name === "caseworkNote") requiredString(input.note, "note");
-  if (name === "caseworkCancellation") requiredString(input.reason, "reason");
-  if (name === "caseworkWorkItems") requiredObject(input.query, "query");
-  if (name === "caseworkTaskGrant") {
-    requiredString(input.templateId, "templateId");
-    requiredString(input.templateVersion, "templateVersion");
-  }
-  if (name === "caseworkTaskRevocation" || name === "caseworkTaskStatus") requiredString(input.grantId, "grantId");
-  if (["caseworkNotes", "caseworkTerminal"].includes(name)) pageQuery(input);
+  throw new OperationFailure("failed", "result.invalid");
 }
 
 function failure(error, ClientError, ProviderError, deduplicateBy) {
@@ -232,9 +368,16 @@ function failure(error, ClientError, ProviderError, deduplicateBy) {
   }
   if (ProviderError && error instanceof ProviderError) {
     const retryable = error.kind === "transport" || error.tokenKind === "transport";
-    const branch = error.kind === "configuration" || error.kind === "invalid_request" ? "invalid_request"
-      : retryable ? "retryable_infrastructure" : "authentication_failed";
-    return { branch, problem: { code: "casework.token", retryable } };
+    const branch =
+      error.kind === "configuration" || error.kind === "invalid_request"
+        ? "invalid_request"
+        : retryable
+          ? "retryable_infrastructure"
+          : "authentication_failed";
+    return {
+      branch,
+      problem: { code: "casework.token", retryable },
+    };
   }
   if (!ClientError || !(error instanceof ClientError)) {
     return {
@@ -302,15 +445,22 @@ function caseworkConfiguration(state) {
     throw new OperationFailure("invalid_request", "configuration.invalid");
   }
   boundedString(configuration.baseUrl, "configuration.casework.baseUrl", 2048);
-  if (configuration.authorization !== undefined && (!configuration.authorization || typeof configuration.authorization !== "object"
-    || Array.isArray(configuration.authorization) || Object.keys(configuration.authorization).length !== 1
-    || configuration.authorization.privateKeyJwt === undefined)) {
+  if (
+    configuration.authorization !== undefined &&
+    (!configuration.authorization ||
+      typeof configuration.authorization !== "object" ||
+      Array.isArray(configuration.authorization) ||
+      Object.keys(configuration.authorization).length !== 1 ||
+      configuration.authorization.privateKeyJwt === undefined)
+  ) {
     throw new OperationFailure("invalid_request", "configuration.authentication");
   }
   if ((configuration.token === undefined) === (configuration.authorization === undefined)) {
     throw new OperationFailure("invalid_request", "configuration.authentication");
   }
-  if (configuration.token !== undefined) boundedString(configuration.token, "configuration.casework.token", 16_384);
+  if (configuration.token !== undefined) {
+    boundedString(configuration.token, "configuration.casework.token", 16_384);
+  }
   boundedString(configuration.profile, "configuration.casework.profile", 128);
   for (const field of [
     "requestTimeoutMilliseconds",
@@ -334,15 +484,19 @@ function caseworkConfiguration(state) {
   return configuration;
 }
 
-async function requesterAuthority(configuration, loadBindings) {
+async function requesterAuthority(configuration, PrivateKeyJwt) {
   if (configuration.authorization?.privateKeyJwt !== undefined) {
-    const { PrivateKeyJwt } = loadBindings();
-    return { token: await new PrivateKeyJwt(configuration.authorization.privateKeyJwt).bearerToken(), profile: configuration.profile };
+    if (typeof PrivateKeyJwt !== "function") {
+      throw new OperationFailure("failed", "client.token_provider_unavailable");
+    }
+    return {
+      token: await new PrivateKeyJwt(
+        configuration.authorization.privateKeyJwt,
+      ).bearerToken(),
+      profile: configuration.profile,
+    };
   }
-  return {
-    token: configuration.token,
-    profile: configuration.profile,
-  };
+  return { token: configuration.token, profile: configuration.profile };
 }
 
 function pageQuery(input) {
@@ -368,20 +522,13 @@ function boundedString(value, label, maximumLength) {
   if (value.length > maximumLength) {
     throw new OperationFailure("invalid_request", `${label}.too_long`);
   }
-  return value;
 }
 
 function requiredObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new OperationFailure("invalid_request", `${label}.object_required`);
   }
-  // OpenFn job literals live in a VM realm. Materialize the JSON-shaped input
-  // in this realm before the native facade applies its bounded JSON validator.
-  try {
-    return structuredClone(value);
-  } catch {
-    throw new OperationFailure("invalid_request", `${label}.object_required`);
-  }
+  return value;
 }
 
 function requiredRevision(value) {

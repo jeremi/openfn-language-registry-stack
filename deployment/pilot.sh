@@ -64,7 +64,7 @@ start_services() {
 
 case "${1:-}" in
   setup)
-    step 'Build pinned images and run native worker gates.' "$base_dir/build-images.sh"
+    "$base_dir/build-images.sh" --quiet
     if [ ! -e "$runtime_dir" ]; then
       staging_dir="$base_dir/.runtime/preparation"
       if [ -e "$staging_dir" ]; then

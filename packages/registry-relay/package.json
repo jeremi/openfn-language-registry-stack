@@ -1,7 +1,7 @@
 {
-  "name": "@openfn/language-registry-evidence",
+  "name": "@openfn/language-registry-relay",
   "version": "0.1.0",
-  "description": "OpenFn language helpers for Registry Stack Evidence.",
+  "description": "OpenFn language helpers for Registry Relay.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./src/index.js",
@@ -15,8 +15,8 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node --experimental-vm-modules --no-warnings --test test/evidence.test.js",
-    "check": "node --check src/index.js && node --check jobs/request-evidence.js && node --check jobs/request-evidence-profile.js && npm test",
+    "test": "node --experimental-vm-modules --no-warnings --test test/relay.test.js",
+    "check": "node --check src/index.js && node --check src/native.cjs && node --check jobs/read-record.js && npm test",
     "pack:dry-run": "npm pack --dry-run"
   },
   "engines": {

@@ -51,7 +51,7 @@ function metadata(entity, route, fields) {
   });
   return value;
 }
-function record(entity, recordId, data, lifecycleState) {
+function record(entity, recordId, data, lifecycleState, reviewRejected = false) {
   const value = baseRecord(Boolean(lifecycleState));
   value.data.recordIdentifier = recordId;
   value.data.snapshot = `breg1_${recordId}`;
@@ -60,10 +60,22 @@ function record(entity, recordId, data, lifecycleState) {
   if (lifecycleState) {
     value.data.request.bregState = lifecycleState;
     value.data.request.actions = lifecycleState === 'draft' ? [{ operation: 'submit_request', method: 'POST', href: `/v1/records/name-corrections/${recordId}/actions/submit?accessProfile=${PROFILE}`, ifMatch: ACTION_ETAG }] : [];
+    if (reviewRejected) {
+      value.data.request.review = {
+        submission: { state: 'accepted', authority: 'casework', requestId: REQUEST_ID,
+          submissionDigest: 'sha256:' + 'a'.repeat(64),
+          policy: { id: 'name-correction', version: '1', digest: 'sha256:' + 'b'.repeat(64) } },
+        result: { state: 'rejected', resultId: REQUEST_ID,
+          completedAt: '2026-09-29T00:00:00Z', availableUntil: '2026-10-06T00:00:00Z' },
+        delivery: { state: 'reconciled', eventId: REQUEST_ID, receivedAt: '2026-09-29T00:00:00Z' },
+        application: { mode: 'manual', state: 'awaitingReview' },
+        recovery: { state: 'none' },
+      };
+    }
   }
   return value;
 }
-async function fixture({ entity = 'farm', currentState = 'draft', currentData, storedData, failStatus } = {}) {
+async function fixture({ entity = 'farm', currentState = 'draft', currentData, storedData, failStatus, reviewRejected = false } = {}) {
   const requests = [];
   const route = entity === 'farm' ? 'farms' : 'name-corrections';
   const recordId = entity === 'farm' ? ID : REQUEST_ID;
@@ -106,7 +118,7 @@ async function fixture({ entity = 'farm', currentState = 'draft', currentData, s
       res.setHeader('location', `/tenant/v1/records/${route}/${recordId}`);
       return res.end(JSON.stringify(record(entity, recordId, stored)));
     }
-    return res.end(JSON.stringify(record(entity, recordId, currentData ?? stored, currentState)));
+    return res.end(JSON.stringify(record(entity, recordId, currentData ?? stored, currentState, reviewRejected)));
   });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   return { requests, mutationCount: () => mutationCount, baseUrl: `http://127.0.0.1:${server.address().port}/tenant`, close: () => new Promise(resolve => server.close(resolve)) };
@@ -253,7 +265,8 @@ test('registration replay reuses the durable key and a changed payload conflicts
 });
 
 test('a rejected correction replay returns its existing request without submission or mutation', async () => {
-  const stub = await fixture({ entity: 'name-correction', currentState: 'rejected', storedData: correctionData(correctionInput) });
+  // Review decisions live in Casework. BREG remains submitted after rejection.
+  const stub = await fixture({ entity: 'name-correction', currentState: 'submitted', reviewRejected: true, storedData: correctionData(correctionInput) });
   try {
     for (let retry = 0; retry < 2; retry++) {
       const result = await runJob('correction', stub.baseUrl, correctionInput);

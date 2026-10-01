@@ -5,7 +5,10 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["baseUrl", "profile"],
-  "oneOf": [{ "required": ["token"] }, { "required": ["authorization"] }],
+  "oneOf": [
+    { "required": ["token"] },
+    { "required": ["authorization"] }
+  ],
   "properties": {
     "baseUrl": {
       "type": "string",
@@ -29,13 +32,18 @@
       "properties": {
         "privateKeyJwt": {
           "type": "object",
+          "additionalProperties": false,
           "required": ["tokenEndpoint", "clientId", "clientKey", "resource", "scopes"],
           "properties": {
             "tokenEndpoint": { "type": "string", "format": "uri" },
-            "clientId": { "type": "string" },
+            "clientId": { "type": "string", "minLength": 1 },
             "clientKey": { "type": "object", "writeOnly": true },
-            "resource": { "type": "string" },
-            "scopes": { "type": "array", "items": { "type": "string" } }
+            "resource": { "type": "string", "minLength": 1 },
+            "scopes": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 }
+            }
           }
         }
       }

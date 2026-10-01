@@ -1,0 +1,17 @@
+{
+  "name": "registry-openfn-legacy-pilot-dependencies",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Frozen dependency graph for the retained Registry Stack 0.27.0 pilot.",
+  "dependencies": {
+    "@openfn/language-common": "3.3.4",
+    "@openfn/language-http": "7.3.3",
+    "@registrystack/client": "0.27.0"
+  },
+  "overrides": {
+    "csv-parse": "7.0.2"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

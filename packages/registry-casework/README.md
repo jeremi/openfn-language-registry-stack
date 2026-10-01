@@ -1,20 +1,16 @@
-# Registry Casework adaptor
+# Registry Casework Requester adaptor
 
-This OpenFn adaptor wraps the maintained Registry Stack Casework Node client.
-Requester operations create and read the caller's own hosted items, add and
-read notes, cancel an item, and poll the caller's terminal feed.
+This OpenFn adaptor wraps the Requester review API in the published
+Registry Stack Node client 0.37.0. It creates or recovers review requests,
+reads request state and correlated results, adds requester-visible notes, pages
+requester-visible history and result feeds, and cancels an accepted request.
+It also preserves the maintained source-inbox and task-grant inspection surface
+for workflows that use a separately authorized source profile.
 
-Task operations read the source inbox and current item, inspect grant templates
-and grants, and explicitly approve or revoke a grant. They do not claim,
-release, or decide a human work item or issue a task assertion into workflow
-state. Casework enforces ownership and authorization from the token identity,
-configured profile, and source profile. Workflow data cannot choose a token or
-Casework profile.
-
-## Client packaging
-
-This package pins `@registrystack/client` to **0.32.0** and uses its `casework`
-namespace. This adaptor has not been published.
+It exports no claim, release, decision, task-assertion, staff, supervisor,
+administrator, or accountability operation. Casework binds every request to
+the authenticated producer and configured Casework profile. Workflow data
+cannot choose a token or Casework profile.
 
 ## Configuration
 
@@ -32,10 +28,8 @@ Store the credential in OpenFn configuration:
 
 For a refreshing service credential, replace `token` with
 `authorization: { privateKeyJwt: { tokenEndpoint, clientId, clientKey, resource,
-scopes } }`. The adaptor uses the native Registry client token provider to
-obtain a bearer token for each operation. Configure exactly one source.
-Task-grant approval requires actor authorization and is never inferred from
-a service credential.
+scopes } }`. Configure exactly one credential source. The adaptor validates the
+operation before asking the native provider for a token.
 
 `requestTimeoutMilliseconds`, `connectTimeoutMilliseconds`,
 `maxResponseBytes`, `userAgent`, and `trustedRootCertificates` pass to the
@@ -43,82 +37,113 @@ maintained client. The token and profile never enter operation output. OpenFn
 keeps configuration available during a composed job and removes it from final
 job output.
 
-## Operations
+## Requester operations
 
-- `createCaseworkItem` requires `kind`, `requesterReference`, `display`, and an
-  explicit `idempotencyKey`.
-- `getCaseworkItem` requires `itemId`.
-- `addCaseworkNote` requires `itemId`, `expectedRevision`, `note`, and an
-  explicit `idempotencyKey`.
-- `listCaseworkNotes` requires `itemId`; `cursor` and `limit` are optional.
-- `cancelCaseworkItem` requires `itemId`, `expectedRevision`, `reason`, and an
-  explicit `idempotencyKey`.
-- `pollCaseworkResults` accepts an optional `cursor` and `limit`.
-- `listCaseworkWorkItems` requires `sourceProfile` and an exact `query` with
-  `view`; `getCaseworkWorkItem`, `previewCaseworkTaskTemplates`, and
+- `createOrRecoverReviewRequest` requires the complete native `request`, an
+  independently computed `expectedSubmissionDigest`, and the caller's stable
+  `idempotencyKey`. The adaptor does not derive a subject, convert display data
+  into review context, or calculate a digest.
+- `getReviewRequest` requires `requestId`.
+- `getReviewResult` requires the complete accepted binding returned by create.
+- `listReviewResults` accepts optional `cursor` and `limit`. Feed entries are
+  completion signals. Retrieve the result using the matching accepted binding.
+- `addReviewNote` requires `requestId`, a stable `idempotencyKey`, and `note`.
+  The adaptor pins the note audience to `requester`.
+- `listReviewHistory` requires `requestId`; `cursor` and `limit` are optional.
+- `cancelReviewRequest` requires the complete accepted binding, a stable
+  `idempotencyKey`, and the exact native `cancellation` object containing the
+  same subject binding and a reason.
+
+Create and cancel each make one maintained-client call. The adaptor never
+generates an idempotency key, retries a mutation, replaces a digest, or rebuilds
+an accepted binding.
+
+## Source inbox and task-grant operations
+
+- `listCaseworkWorkItems` requires `sourceProfile` and an exact native `query`.
+- `getCaseworkWorkItem`, `previewCaseworkTaskTemplates`, and
   `listCaseworkTaskGrants` require `sourceProfile` and `itemId`.
-- `approveCaseworkTaskGrant` additionally requires `expectedRevision`,
-  `templateId`, `templateVersion`, and a stable `idempotencyKey`.
-  `revokeCaseworkTaskGrant` requires `grantId`; `caseworkTaskGrantStatus`
-  accepts `grantId` without a source profile.
+- `approveCaseworkTaskGrant` also requires the held `expectedRevision`, a
+  caller-owned `idempotencyKey`, `templateId`, and `templateVersion`.
+- `revokeCaseworkTaskGrant` requires `sourceProfile`, `itemId`, and `grantId`.
+- `caseworkTaskGrantStatus` requires `grantId`.
 
-Each operation makes one maintained-client call and writes a result under its
-default key or the bounded `as` name. A success has
-`{ branch: "succeeded", value, traceId? }`. Typed failures contain only bounded
-diagnostics. Response detail, SDK messages, credentials, configuration, and
-caller inputs are not copied into the result.
+The adaptor passes source authority, revisions, and keys to the native client
+unchanged. It never issues a task assertion into workflow state.
 
-Idempotency conflicts are returned as `branch: "conflict"`; the adaptor never
-generates a replacement key or retries silently. Keep each key with the logical
-create, note, or cancellation until its outcome is resolved.
+A normal response has `{ branch: "succeeded", value, traceId? }`. Result lookup
+instead preserves the native state as `available`, `pending`,
+`concealed_or_unknown`, or `expired`; only `available` carries a result value.
+Typed failures contain bounded diagnostics. Response detail, SDK messages,
+credentials, configuration, and caller inputs are not copied into the result.
 
-## Cursor expiry
+## Request body
 
-A typed `cursor.expired` response returns `branch: "cursor_expired"` without a
-retry. The result identifies the explicit recovery:
+The create request follows the native 0.37.0 contract. For submitted context:
 
 ```json
 {
-  "recovery": {
-    "action": "restart_without_cursor",
-    "deduplicateBy": "eventId"
+  "kind": "decision",
+  "subject": {
+    "source": "payments",
+    "type": "batch",
+    "id": "batch-0042",
+    "version": "7",
+    "digest": "sha256:<64 lowercase hex characters>"
+  },
+  "requesterReference": "batch-0042",
+  "context": {
+    "strategy": "submitted",
+    "snapshot": {
+      "summary": "Review batch 42"
+    }
   }
 }
 ```
 
-Restart the terminal poll without `cursor`, then deduplicate against persisted
-`eventId` values. Notes use `noteId` instead. Poll within the configured
-terminal retention period; an expired item is no longer available.
+The service returns an accepted binding containing `requestId`, the immutable
+subject, the pinned policy, and `submissionDigest`. Persist that object intact
+for result lookup, cancellation, and recovery.
+
+## Cursor expiry
+
+A typed `cursor.expired` response returns `branch: "cursor_expired"` without a
+retry. Restart without a cursor and deduplicate against persisted `eventId`
+values. Poll inside the configured retention period.
 
 ## Example
 
 ```js
 import { execute } from "@openfn/language-common";
-import { createCaseworkItem, pollCaseworkResults } from "@openfn/language-registry-casework";
+import {
+  createOrRecoverReviewRequest,
+  listReviewResults,
+} from "@openfn/language-registry-casework";
 
 execute(
-  createCaseworkItem((state) => ({
-    kind: state.data.caseworkKind,
-    requesterReference: state.data.requestReference,
-    display: state.data.caseworkDisplay,
+  createOrRecoverReviewRequest((state) => ({
+    request: state.data.reviewRequest,
+    expectedSubmissionDigest: state.data.submissionDigest,
     idempotencyKey: state.data.createKey,
-    as: "createdCasework",
+    as: "accepted",
   })),
-  pollCaseworkResults({ limit: 25, as: "terminalResults" }),
+  listReviewResults({ limit: 25, as: "completedReviews" }),
 );
 ```
 
 ## Verification
 
-The package check uses fake bindings and the real native client over a local
-HTTP fixture:
+The package check exercises fake bindings and the installed 0.37.0 native
+client against a loopback HTTP service:
 
 ```sh
 npm run check --workspace @openfn/language-registry-casework
 ```
 
-The two-adaptor CLI fixture under `test/multi-adaptor-job.js` runs with repeated
-`-a @openfn/language-registry-evidence@local=/absolute/path/to/registry-evidence`
-and `-a @openfn/language-registry-casework@local=/absolute/path/to/registry-casework`.
-It imports `execute` from Evidence's reexport of OpenFn common, so a third
-common adaptor alias is unnecessary.
+For a deployed service, pass configuration plus the complete request,
+submission digest, cancellation, and three caller-owned idempotency keys on
+standard input. The smoke script prints only a success summary:
+
+```sh
+node packages/registry-casework/scripts/live-smoke.mjs < smoke-input.json
+```

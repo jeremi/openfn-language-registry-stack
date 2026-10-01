@@ -1,7 +1,7 @@
 # @openfn/language-registry-breg
 
 OpenFn operations over the native `breg` namespace in the exact published
-`@registrystack/client@0.32.0`. The adaptor uses
+`@registrystack/client@0.37.0`. The adaptor uses
 `@openfn/language-common@3.3.4` and reexports its composition helpers.
 It does not implement Registry authorization or an alternative HTTP client.
 
@@ -23,9 +23,9 @@ Put the native SDK configuration in `state.configuration.breg`, or directly in
 
 Alternatively use `authorization: { privateKeyJwt: { tokenEndpoint, clientId,
 clientKey, audience } }`, where `clientKey` is a private JWK with `kty`, `kid`,
-and `alg`. The current client also accepts `authorization: { exchange: ... }`
-for an immutable context and reviewed first-party or remote assertion source;
-the native provider performs the exchange and bounds its lifetime. Token and
+and `alg`. The client also accepts `authorization: { exchange: ... }` for an
+immutable context and reviewed first-party or remote assertion source; the
+native provider performs the exchange and bounds its lifetime. Token and
 Registry TLS trust roots and timeouts are independent.
 The [configuration schema](./configuration-schema.json) lists the fields;
 the native SDK validates supported algorithms, bounds and URLs. Keep keys and
@@ -65,7 +65,7 @@ when the next step no longer needs them. The adaptor does not log requests.
 | `createRecord` | `operationIdentifier`, `accessProfile`, `data`, `idempotencyKey`. |
 | `patchRecord` | `operationIdentifier`, `accessProfile`, `recordIdentifier`, `etag`, `operations`, `idempotencyKey`. |
 | `createChangeRequest` | Same as create; use the configured change-request entity's create operation to create a draft. |
-| `executeLifecycleAction` | `entityIdentifier`, `route`, `recordIdentifier`, `accessProfile`, `operation`, action `ifMatch`, `idempotencyKey`; `stage` for staged review. |
+| `executeLifecycleAction` | `entityIdentifier`, `route`, `recordIdentifier`, `accessProfile`, `operation`, action `ifMatch`, `idempotencyKey`. |
 
 Reads and lookup accept `select`, `accessProfile`, and `format` (`json` or
 `json-ld`). Lists also accept these. Creates, patches and lifecycle actions accept
@@ -84,16 +84,17 @@ separate action-specific value in `value.data.request.actions`, never the record
 ETag. The lifecycle helper refetches the contract and record, promotes actions
 through the native client, and requires exactly one matching operation/stage and
 the caller's held `ifMatch`. A changed proposal fails before any action POST.
-Supported operation names are `submit_request`, `approve_request`,
-`reject_request`, `request_revision`, `revise_request`, `cancel_request`, and
-`apply_request`, subject to the current metadata, actor, stage and record state.
+Supported operation names are `submit_request`, `revise_request`,
+`cancel_request`, and `apply_request`, subject to the current metadata, actor
+and record state. Casework owns review decisions in Registry Stack 0.37;
+approval and rejection are not BREG lifecycle actions.
 
 Create a governed correction with `createChangeRequest`, read the created request
 with `getRecord` to obtain its current actions, then explicitly call
 `executeLifecycleAction` with `operation: 'submit_request'`. Give each mutation
 its own durable idempotency key derived from the source event and operation.
-Creating a draft does not approve or submit it. Review and application remain
-separate actor-authorized actions. See the [create and submit job](./jobs/create-and-submit.js)
+Creating a draft does not approve or submit it. Casework review and BREG
+application remain separate actor-authorized actions. See the [create and submit job](./jobs/create-and-submit.js)
 and [read and patch job](./jobs/read-and-patch.js) for synthetic templates.
 
 ## Failures and recovery

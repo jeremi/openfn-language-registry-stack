@@ -7,20 +7,24 @@
 - The event bridge accepts `BREG_BIND_HOST=127.0.0.1` for host-local receivers.
   Its existing `0.0.0.0` default remains unchanged.
 - `@openfn/language-registry-casework` wraps the native Casework client for
-  requester operations on hosted items and task operations on source inboxes
-  and grants.
+  requester review requests and results, source inboxes and task grants.
+- `@openfn/language-registry-relay` provides governed V2 record reads, lookups,
+  pagination, metadata and SDMX aggregate queries through the native client.
 
 ### Changed
 
-- The Evidence, BREG and Casework adaptors pin `@registrystack/client` 0.32.0.
-  The pilot's Registry Stack images and bootstrap tools remain at 0.27.0.
+- The Evidence, BREG, Casework and Relay V2 adaptors pin the published
+  `@registrystack/client` 0.37.0. Relay uses governed V2 resources and native
+  continuations; Casework uses current review-request bindings and results.
+  The retained pilot's Registry Stack images, bootstrap tools and separately
+  locked client remain at 0.27.0.
 
 ### Removed
 
 - Removed the Relay v1 adaptor (`@openfn/language-registry-relay`), its
   credential schema, example job, tests and workspace dependencies. Workflows
-  using that local adaptor must be updated before upgrading. No Relay v2
-  replacement is included.
+  using that local adaptor must be updated before upgrading. The replacement
+  native Relay V2 adaptor uses different configuration, options and result shapes.
 
 ## 0.1.0 Beta
 

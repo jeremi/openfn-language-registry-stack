@@ -1,11 +1,19 @@
 # Pilot container packaging
 
+This is the retained Registry Stack **0.27.0** pilot. The repository's current
+adaptors target **0.37.0**; this deployment intentionally installs its separate
+`deployment/package-lock.json` so rebuilding it cannot introduce client/runtime
+version skew. It is not a 0.37 deployment. A new deployment needs ThunderID in
+place of Mint, Casework review, and regenerated BREG/Evidence configuration and
+packages. Preserve retained state and follow the product upgrade procedure;
+do not repin images against the existing configuration.
+
 This directory packages upstream Lightning 2.18.2 and websocket worker 1.29.0
 with the local Evidence and BREG adaptors. Upstream and
 Registry Stack image identities are recorded in `images.lock.json`.
 
-Run `./deployment/build-images.sh` from the repository after its package lock is
-current. It builds the worker first and compiles the exact four generated
+Run `./deployment/build-images.sh` from the repository using the frozen deployment
+lock. It builds the worker first and compiles the exact four generated
 Lightning job bodies with upstream adaptor export preloading and automatic
 imports. The BREG and Evidence jobs must reach their own input validation, and
 the destination job executes against a controlled loopback responder. The check
@@ -23,7 +31,7 @@ matching the pinned PostgreSQL base image.
 
 The worker release is Alpine. The worker Dockerfile copies its compiled
 application unchanged into pinned Node 24.19.0 Bookworm, installs the upstream
-frozen dependency lock for glibc, and installs the adaptor repository's locked
+frozen dependency lock for glibc, and installs the deployment's locked
 production dependencies. It does not rebuild or patch OpenFn source. The local
 adaptor root contains `registry-evidence`, `registry-breg`, `common`, and `http`.
 No dependency installation is performed when the worker starts.

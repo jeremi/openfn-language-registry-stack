@@ -131,6 +131,29 @@ test("safe stable failures distinguish not found, denied, conflict and temporary
   }
 });
 
+test("0.37 located request and query refusals stay invalid requests without exposing paths", async () => {
+  for (const [code, detail, fieldPath] of [
+    ["request.invalid", "The request is invalid.", "/data/legalName"],
+    ["query.invalid", "The query request is invalid.", "$select"],
+  ]) {
+    const stub = await server((_req, res) => {
+      res.statusCode = 400;
+      res.setHeader("content-type", "application/problem+json");
+      res.end(JSON.stringify({
+        type: `https://id.registrystack.org/problems/registry-breg/${code.replace('.', '/')}`,
+        title: "Bad Request", status: 400, detail, code, traceId: TRACE, fieldPath,
+      }));
+    });
+    try {
+      const result = await getRecord({ route: "companies", recordIdentifier: ID })(state(stub.baseUrl));
+      assert.equal(result.data.breg.branch, "invalid_request", JSON.stringify(result.data.breg));
+      assert.equal(result.data.breg.code, code);
+      assert.equal(stub.requests.length, 1);
+      assert.equal(JSON.stringify(result.data.breg).includes(fieldPath), false);
+    } finally { await stub.close(); }
+  }
+});
+
 test("privateKeyJwt configuration reaches native validation without disclosing keys", async () => {
   const { privateKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   const key = { ...privateKey.export({ format: "jwk" }), alg: "ES256", kid: "synthetic-key" };
@@ -138,6 +161,18 @@ test("privateKeyJwt configuration reaches native validation without disclosing k
   const result = await discoverRegistry()(configured);
   assert.equal(result.data.breg.branch, "retryable_infrastructure", JSON.stringify(result.data.breg));
   assert.ok(!JSON.stringify(result.data).includes(key.d));
+});
+
+test("configuration schema preserves static, private-key, and exchange authorization", () => {
+  const schema = JSON.parse(
+    readFileSync(new URL("../configuration-schema.json", import.meta.url), "utf8"),
+  );
+  assert.deepEqual(
+    schema.properties.authorization.oneOf.map((variant) => variant.required[0]),
+    ["static", "privateKeyJwt", "exchange"],
+  );
+  assert.ok(schema.$defs.privateKeyJwt.properties.resource);
+  assert.ok(schema.$defs.privateKeyJwt.properties.scopes);
 });
 
 test("compiled OpenFn job composes native reads and writes and runtime removes credentials", async () => {

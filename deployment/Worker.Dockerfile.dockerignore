@@ -13,6 +13,8 @@
 !packages/registry-breg/src
 !packages/registry-breg/src/**
 !deployment
+!deployment/package.json
+!deployment/package-lock.json
 !deployment/check-worker.mjs
 !deployment/check-engine.mjs
 !deployment/check-native.cjs

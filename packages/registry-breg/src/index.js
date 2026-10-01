@@ -138,7 +138,8 @@ function failure(error) {
   }
   const status = Number.isSafeInteger(error.status) ? error.status : 0;
   let branch = "failed";
-  if (error.kind === "configuration" || error.kind === "invalid_request") branch = "invalid_request";
+  if (error.kind === "configuration" || error.kind === "invalid_request"
+    || (error.kind === "problem" && status === 400)) branch = "invalid_request";
   else if (error.kind === "transport" || (error.kind === "token" && error.tokenKind === "transport")
     || (error.kind === "problem" && (status === 429 || status >= 500))) branch = "retryable_infrastructure";
   else if (error.kind === "token" || status === 401) branch = "auth_failed";
