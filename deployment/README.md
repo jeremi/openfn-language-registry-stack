@@ -1,106 +1,116 @@
 # Pilot container packaging
 
-This is the retained Registry Stack **0.27.0** pilot. The repository's current
-adaptors target **0.37.0**; this deployment intentionally installs its separate
-`deployment/package-lock.json` so rebuilding it cannot introduce client/runtime
-version skew. It is not a 0.37 deployment. A new deployment needs ThunderID in
-place of Mint, Casework review, and regenerated BREG/Evidence configuration and
-packages. Preserve retained state and follow the product upgrade procedure;
-do not repin images against the existing configuration.
+This directory deploys matching Registry Stack **0.38.0** clients, tools,
+runtimes and authored packages. ThunderID provides identity, Casework owns
+review decisions, and BREG owns authoritative records and explicit application.
+Evidence uses a persistent OpenBao Transit key through an official Agent Unix
+proxy. Upstream Lightning 2.18.2 and websocket worker 1.29.0 remain unchanged.
+Image identities and tool checksums are recorded in `images.lock.json` and
+`tools.sha256`.
 
-This directory packages upstream Lightning 2.18.2 and websocket worker 1.29.0
-with the local Evidence and BREG adaptors. Upstream and
-Registry Stack image identities are recorded in `images.lock.json`.
+The current deployment is a fresh synthetic pilot. Its fixed Compose project is
+`registry-openfn-pilot-038`, and its private configuration is under
+`pilot/agriculture/.runtime-0.38`. The previous `registry-openfn-pilot` volumes and
+`pilot/agriculture/.runtime` directory are not reused, migrated or removed.
+Keep the matching legacy checkout at commit `65d988a` if that pilot must be
+operated again. A retained-record upgrade needs the product's staged migration
+procedure; running current tools against a 0.27 database is not that procedure.
 
-Run `./deployment/build-images.sh` from the repository using the frozen deployment
-lock. It builds the worker first and compiles the exact four generated
-Lightning job bodies with upstream adaptor export preloading and automatic
-imports. The BREG and Evidence jobs must reach their own input validation, and
-the destination job executes against a controlled loopback responder. The check
-also proves credentials remain available between operations and disappear at
-the normal job boundary.
-The released engine's real child-process handshake is checked separately under
-the image's configured UID and GID, with no network access.
-It then builds Lightning, the event services, PostgreSQL TLS setup, and the
-checksum-verified Registry Stack 0.27.0 bootstrap tools.
-The PostgreSQL check initializes an isolated database from synthetic files owned
-by UID1001 with mode 0600, proving that its runtime user can read the staged SQL
-without relaxing the operator's file permissions. It mounts no pilot data.
-Bootstrap packages come from the signed Debian snapshot dated August 24, 2026,
-matching the pinned PostgreSQL base image.
+Run `./deployment/pilot.sh setup` for first setup, then `start`, `stop`, or
+`status`. Setup builds pinned images, prepares fresh owner-only inputs, checks
+and activates the BREG and Casework packages, initializes the signer, packages
+Evidence against its exact public key, and applies the upstream Lightning
+migrations. Workflows are provisioned disabled, webhook authentication is
+attached and tested, then triggers are enabled. Each failed stage identifies
+itself while suppressing raw runtime output, which can contain credentials.
+Readiness waits are bounded. Setup alone does not prove acceptance: finish with
+`python3 pilot/smoke.py`.
 
-The worker release is Alpine. The worker Dockerfile copies its compiled
-application unchanged into pinned Node 24.19.0 Bookworm, installs the upstream
-frozen dependency lock for glibc, and installs the deployment's locked
-production dependencies. It does not rebuild or patch OpenFn source. The local
-adaptor root contains `registry-evidence`, `registry-breg`, `common`, and `http`.
-No dependency installation is performed when the worker starts.
+`./deployment/build-images.sh` builds the worker and checks the exact generated
+Lightning job bodies with the released compiler and runtime. The destination
+body executes against a synthetic loopback server. The checks exercise native
+client loading, automatic adaptor imports, and configuration removal at the job
+boundary. A separate network-disabled container verifies the released engine's
+child-process handshake under the configured operator UID/GID. No dependency
+installation happens when the worker starts.
 
-The released Lightning and worker images provide **linux/amd64 only**. This
-pilot therefore pins that platform, including on Apple Silicon under Docker
-emulation. The arm64 adaptor layer independently passed both Evidence and BREG native
-constructor checks on Node 24.19.0/glibc 2.36. Reproduce with
-`docker build --platform linux/arm64 --target adaptors -f deployment/Worker.Dockerfile .`.
-An arm64 native-worker claim requires an upstream arm64 image and a
-separate real-worker acceptance run. The Node and Registry Stack clients alone
-being available for arm64 does not establish that claim.
+The upstream worker release is Alpine. Its compiled application is copied
+unchanged into pinned Node 24.19.0 Bookworm and its released dependency lock is
+installed for glibc. The current adaptor dependency graph is installed at image
+build time. There is no OpenFn source patch. The released Lightning and worker
+images provide **linux/amd64 only**; Apple Silicon therefore uses emulation.
+An arm64 client or constructor check does not establish arm64 worker support.
 
-`compose.yaml` belongs to the synthetic agriculture pilot. Generate its ignored
-runtime configuration using the pilot's setup workflow before using Compose.
-It contains persistent independent Lightning and BREG databases. Mint owns a
-shared network namespace for BREG, Evidence, worker, bridge and bootstrap tools,
-so Registry Stack's explicit development HTTP policy uses loopback. Only the
-Lightning UI (4000), BREG event bridge (4001) and BREG reviewer API (4002) are
-published, all on host loopback.
+ThunderID owns the shared network namespace used by BREG, Casework, Evidence,
+the worker, bridge and bootstrap tools. A pinned NGINX gateway provides HTTPS
+for the issuer, Evidence source access and Evidence API using a private pilot
+CA. Client trust is bound to that CA; the token issuer is the actual HTTPS
+origin. Remaining explicit development HTTP uses loopback inside that
+namespace. Pilot TLS and database certificates expire after 365 days; an
+operated deployment needs a renewal procedure that preserves its data and keys.
+Host publications also bind only
+to loopback: Lightning UI **4010**, bridge **4011**, BREG **4012**, and Casework
+**4013**. The gateway forwards those development service ports to the native
+loopback listeners inside the shared namespace. Independent Lightning, BREG and Casework PostgreSQL databases retain
+their own data. PostgreSQL configuration stages owner-only SQL and TLS keys with
+the database runtime's ownership before invoking the unchanged entrypoint. A
+network-disabled disposable database check verifies that handoff without
+mounting pilot data.
 
-Configuration mounts are scoped to each service. In particular the worker only
-receives its Evidence client profile, and Lightning receives its own bootstrap
-secrets. The bootstrap tools alone receive all generated Registry Stack inputs.
-The wrapper copies the database's private key and initial SQL with postgres
-ownership and mode 0600 before invoking the unchanged upstream entrypoint. The
-initial SQL applies only when PostgreSQL initializes a new named volume.
+OpenBao has a persistent backend and owner-only initialization material. A
+restart unseals the existing backend; it does not initialize a replacement or
+create another signing key. The Agent uses its separate AppRole and a scoped
+read/sign policy for the Evidence key. The policy requires an explicit key
+version but does not restrict its numeric value. The released signer pins and
+verifies version one; startup refuses rotated or multi-version keys. Do not
+rotate this pilot key while services are running: after privileged rotation,
+the raw Agent socket could sign another version. Evidence receives only
+the workload-local socket and governed public key, without a provider token or
+private signing key. This is a supervised local demonstration, not a production
+secret-custody or automatic-unseal deployment.
 
-Follow the pilot runbook for migrations, first operator setup, provisioning,
-and acceptance. Build checks establish packaging and native execution; they do
-not by themselves establish the full workflow or event-delivery journey.
+Configuration mounts are scoped to each service. The worker receives its
+Evidence client configuration, Lightning its bootstrap secrets, and Evidence its own
+runtime, secrets, audit storage and signing socket. Bootstrap tools are an
+operator surface with privileged package, database and reviewer material. Do
+not expose their mounts or the Docker daemon. The reviewer is an explicit
+synthetic teaching identity; an operated deployment needs real human sessions
+and independently governed permissions.
 
-Use `./deployment/pilot.sh setup` for the complete bootstrap, then `start`,
-`stop`, or `status`. Setup preserves an existing completed runtime and verifies
-its retained package; it does not clear a failed preparation or reset records.
-A failed step stops startup, and raw runtime diagnostics are suppressed because
-upstream errors can contain short-lived worker-token URLs. Database migrations
-use the upstream release API before starting Lightning. Workflows are provisioned
-disabled, webhook authentication is attached, then authentication is checked
-before enabling triggers. Readiness waits are bounded.
+`./deployment/compose.sh` is the supported Compose entrypoint. It fixes the
+project name and operator UID/GID using an ignored environment file. Generated
+files remain owned by that operator with restrictive modes. The worker image
+contains a matching passwd/group entry because upstream engine children start
+with an empty environment. When transferring a pilot to another operator,
+transfer private-file ownership explicitly and rebuild images. Do not widen
+secret permissions. `./deployment/check-permissions.sh` checks service mount
+readability without printing contents.
 
-`./deployment/compose.sh` is the supported Compose entrypoint. It creates ignored
-`deployment/.env` containing the current operator UID and GID and uses that same
-identity for OpenFn, Registry Stack, bootstrap and event-service containers.
-The worker image also bakes a matching passwd/group entry when needed because
-upstream starts its engine children with an empty environment. Rebuild images
-with `build-images.sh` when transferring the pilot to a different operator.
-Generated private files remain owned by that operator with restrictive modes.
-The separate PostgreSQL entrypoint still drops to the image's postgres user.
-`volume-init` adjusts ownership only inside the pilot's named audit, destination
-and worker-cache volumes. It preserves metadata when ownership and permissions
-already match, so resumed starts do not invalidate active audit writers.
-No other host paths or volumes are touched.
+The pilot uses the dedicated Docker subnet `10.254.38.0/24`, so it can start
+when Docker's default address pools are exhausted. If that subnet conflicts
+with another network, set `PILOT_SUBNET` to an unused private subnet before
+first setup and retain that setting when starting the same pilot.
 
-Run `./deployment/check-permissions.sh` after preparing or transferring a pilot.
-It checks each service's private bind mount under the selected UID without
-printing contents. Moving a pilot to another operator requires an explicit
-ownership transfer of retained private files and updating `deployment/.env`;
-the wrapper refuses to silently use another operator's settings. Do not make
-private keys world-readable. Local image checks use a non-default UID/GID on
-macOS/OrbStack. The focused GitHub Actions gate runs fresh setup, the complete
-workflow journey, retained restart and failure recovery on Ubuntu 24.04.
+External Sentry reporting and Lightning usage tracking are disabled. Lightning
+retains dataclips and workflow history according to its pilot retention setting;
+minimized job output does not erase original webhook inputs. Registry, Casework
+and Evidence audits, local review snapshots and destination effects have their
+own retention. Never publish raw logs or private runtime folders.
 
-External Sentry reporting is explicitly disabled for worker and Lightning, and
-Lightning usage tracking is disabled. The worker uses its dedicated writable
-cache rather than writing to the packaged application.
+Stop and restart retain data, keys and packages. Reset is separate and
+permanently deletes only the current 0.38 synthetic project and marked runtime:
+`./deployment/pilot.sh reset --confirm-delete-synthetic-data`. Neither setup,
+start, stop nor smoke resets data. A partially activated package or failed
+preparation is retained for inspection; follow the owning product recovery
+procedure rather than clearing an interlock.
 
-Reset is deliberately separate and destructive. Only
-`./deployment/pilot.sh reset --confirm-delete-synthetic-data` removes the fixed
-`registry-openfn-pilot` project volumes and its marked synthetic `.runtime`
-directory. No reset is performed by setup, start or stop. Run the normal pilot
-smoke journey after setup to establish full workflow behavior.
+The Linux CI gate runs a fresh setup, the registration/correction/Evidence
+journey, retained restart, exact replay and bounded failure-recovery scenarios.
+Build and offline fixture checks establish different boundaries and do not
+replace that live acceptance proof.
+
+The local Evidence client uses explicit native SDK configuration with the pinned
+Transit public key, exact package revision and verification policy, and private-key
+JWT authentication. Registry Stack 0.38 progressive profiles reject private HTTPS
+origins. Source authorization and signed-response verification use the released
+SDK under this configuration.

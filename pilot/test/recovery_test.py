@@ -36,6 +36,7 @@ class RecoveryTests(unittest.TestCase):
             sql = command.call_args.kwargs['input']
             self.assertTrue(sql.startswith('BEGIN READ ONLY;'))
             self.assertTrue(sql.endswith('ROLLBACK;\n'))
+            self.assertIn("::jsonb->'data'->>'recordId'", sql)
             self.assertIn('-d agriculture', command.call_args.args[0][-1])
         result = subprocess.CompletedProcess([], 1, stdout='SYNTHETIC-SECRET-CANARY', stderr='SYNTHETIC-PAYLOAD-CANARY')
         with patch.object(recovery.subprocess, 'run', return_value=result):
@@ -46,7 +47,7 @@ class RecoveryTests(unittest.TestCase):
     def test_service_scope_disallows_database_or_volume_operations(self):
         driver = recovery.Recovery.__new__(recovery.Recovery)
         with patch.object(recovery, 'captured') as command:
-            for operation, services in [('down', ['worker']), ('stop', ['breg-db']), ('restart', ['mint'])]:
+            for operation, services in [('down', ['worker']), ('stop', ['breg-db']), ('restart', ['issuer'])]:
                 with self.assertRaises(recovery.SmokeFailure):
                     driver.service(operation, *services)
             command.assert_not_called()
@@ -111,6 +112,7 @@ class RecoveryTests(unittest.TestCase):
             self.assertEqual(driver.replay_smoke(), 1)
             args = command.call_args.args[0]
             self.assertIn(EVENT, args)
+            self.assertEqual(args[args.index('--runtime-config') + 1], '/config/breg/runtime.yaml')
             self.assertEqual(args[-2:], ['--expected-generation', '1'])
         with patch.object(driver, 'orders', return_value=[{'state': 'pending'}]), patch.object(recovery, 'captured') as command:
             with self.assertRaises(recovery.SmokeFailure):

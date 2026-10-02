@@ -12,7 +12,9 @@ const SIGNED_HEADERS = [
 ];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
+const RECORD_REFERENCE = /^hmac-sha256:[0-9a-f]{64}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+const EVENT_BODY_FORMATS = ['direct-data-v0', 'hook-envelope-v1'];
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 class Refusal extends Error {
@@ -30,8 +32,11 @@ export function loadConfig(env = process.env) {
     const hmacKey = readFileSync(env.BREG_HMAC_KEY_FILE);
     const eventPath = env.BREG_EVENT_PATH ?? EVENT_PATH;
     const bindHost = env.BREG_BIND_HOST ?? '0.0.0.0';
+    const eventBodyFormat = env.BREG_EVENT_BODY_FORMAT ?? 'direct-data-v0';
     const deliveryMode = env.OPENFN_DELIVERY_MODE ?? 'webhook';
-    if (!['webhook', 'cli'].includes(deliveryMode)) throw new Error('invalid delivery mode');
+    if (!['webhook', 'cli'].includes(deliveryMode) || !EVENT_BODY_FORMATS.includes(eventBodyFormat)) {
+      throw new Error('invalid delivery mode or event body format');
+    }
     const apiKey = deliveryMode === 'webhook' ? readFileSync(env.OPENFN_API_KEY_FILE, 'utf8') : undefined;
     const expectedEvents = JSON.parse(readFileSync(env.BREG_EXPECTED_EVENTS_FILE, 'utf8'));
     const allowedValueFields = JSON.parse(readFileSync(env.BREG_ALLOWED_VALUE_FIELDS_FILE, 'utf8'));
@@ -60,7 +65,7 @@ export function loadConfig(env = process.env) {
       hmacKey, apiKey, expectedEvents, allowedValueFields, deliveryMode,
       inboxPath: env.OPENFN_INBOX_PATH,
       expectedSource: env.BREG_EXPECTED_SOURCE, expectedEntity: env.BREG_EXPECTED_ENTITY,
-      eventPath, bindHost,
+      eventPath, bindHost, eventBodyFormat,
       openfnUrl: url, port: positive(env.PORT, 8081, 65535),
       maxBodyBytes: positive(env.MAX_BODY_BYTES, 65536, 1048576),
       maxDeliverySkewSeconds: positive(env.MAX_DELIVERY_SKEW_SECONDS, 300, 3600),
@@ -134,10 +139,7 @@ function readBody(request, limit) {
   });
 }
 
-function verifyPayload(body, config, binding) {
-  let data;
-  try { data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(body)); }
-  catch { throw new Refusal(400, 'invalid_event'); }
+function verifyData(data, config, binding) {
   const fields = binding.valueFields ?? config.allowedValueFields;
   const keys = ['entity', 'recordId', 'revision', 'trigger', 'packageRevision', 'values'];
   if (binding.trigger === 'request_lifecycle') keys.push('request');
@@ -154,6 +156,69 @@ function verifyPayload(body, config, binding) {
   }
   if (binding.trigger === 'request_lifecycle') verifyLifecycle(data.request);
   return data;
+}
+
+function canonicalJson(value) {
+  if (value === null || typeof value === 'boolean' || typeof value === 'number') return JSON.stringify(value);
+  if (typeof value === 'string') {
+    if (!value.isWellFormed()) throw new Refusal(400, 'invalid_event');
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  return `{${Object.keys(value).sort().map(key => `${canonicalJson(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+}
+
+function normalizedEventTime(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value)) return false;
+  const instant = Date.parse(value);
+  if (!Number.isFinite(instant)) return false;
+  const normalized = new Date(instant).toISOString()
+    .replace(/\.000Z$/, 'Z').replace(/(\.\d*?[1-9])0+Z$/, '$1Z');
+  return normalized === value;
+}
+
+function verifyHookEnvelope(envelope, body, headers, config, binding) {
+  const keys = ['id', 'type', 'source', 'time', 'subject', 'dataschema', 'data', 'causation'];
+  const subjectKeys = ['recordReference', 'recordRevision'];
+  if (!object(envelope) || Object.keys(envelope).length !== keys.length || keys.some(key => !Object.hasOwn(envelope, key)) ||
+      envelope.id !== headers['ce-id'] || envelope.type !== headers['ce-type'] ||
+      envelope.source !== headers['ce-source'] || envelope.time !== headers['ce-time'] ||
+      envelope.dataschema !== headers['ce-dataschema'] || !normalizedEventTime(envelope.time) ||
+      !object(envelope.subject) || Object.keys(envelope.subject).length !== subjectKeys.length ||
+      subjectKeys.some(key => !Object.hasOwn(envelope.subject, key)) ||
+      typeof envelope.subject.recordReference !== 'string' || !RECORD_REFERENCE.test(envelope.subject.recordReference) ||
+      !Number.isSafeInteger(envelope.subject.recordRevision) || envelope.subject.recordRevision < 1) {
+    throw new Refusal(400, 'invalid_event');
+  }
+  const data = verifyData(envelope.data, config, binding);
+  if (envelope.subject.recordRevision !== data.revision) throw new Refusal(400, 'invalid_event');
+  const causationKeys = ['root', 'hop'];
+  if (!object(envelope.causation) || Object.hasOwn(envelope.causation, 'parent') && envelope.causation.parent === null ||
+      Object.keys(envelope.causation).some(key => ![...causationKeys, 'parent'].includes(key)) ||
+      causationKeys.some(key => !Object.hasOwn(envelope.causation, key)) ||
+      typeof envelope.causation.root !== 'string' || !UUID.test(envelope.causation.root) ||
+      !Number.isSafeInteger(envelope.causation.hop) || envelope.causation.hop < 0 || envelope.causation.hop > 8 ||
+      (Object.hasOwn(envelope.causation, 'parent') &&
+        (typeof envelope.causation.parent !== 'string' || !UUID.test(envelope.causation.parent))) ||
+      (envelope.causation.hop === 0 &&
+        (Object.hasOwn(envelope.causation, 'parent') || envelope.causation.root !== envelope.id)) ||
+      (envelope.causation.hop > 0 &&
+        (!Object.hasOwn(envelope.causation, 'parent') || envelope.causation.parent === envelope.id ||
+          envelope.causation.root === envelope.id))) {
+    throw new Refusal(400, 'invalid_event');
+  }
+  if (!body.equals(Buffer.from(canonicalJson(envelope)))) throw new Refusal(400, 'invalid_event');
+  return data;
+}
+
+function verifyPayload(body, headers, config, binding) {
+  let payload;
+  try { payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(body)); }
+  catch { throw new Refusal(400, 'invalid_event'); }
+  const format = config.eventBodyFormat ?? 'direct-data-v0';
+  if (format === 'direct-data-v0') return verifyData(payload, config, binding);
+  if (format === 'hook-envelope-v1') return verifyHookEnvelope(payload, body, headers, config, binding);
+  throw new Refusal(503, 'unavailable');
 }
 
 function verifyLifecycle(value) {
@@ -213,6 +278,15 @@ function respond(response, status, code) {
   }
 }
 
+function respondAccepted(response, eventBodyFormat) {
+  if (eventBodyFormat === 'hook-envelope-v1') {
+    response.writeHead(202, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    response.end('{"answer":"none"}');
+  } else {
+    respond(response, 202, 'accepted');
+  }
+}
+
 export function createBridge(config) {
   const inbox = config.deliveryMode === 'cli' ? new DurableInbox(config.inboxPath) : undefined;
   const eventPath = config.eventPath ?? EVENT_PATH;
@@ -226,7 +300,7 @@ export function createBridge(config) {
       const expected = webhookSignature(config.hmacKey, request.headers, body, 'POST', eventPath);
       if (!/^v1=[A-Za-z0-9_-]{43}$/.test(provided) ||
           !timingSafeEqual(Buffer.from(provided), Buffer.from(expected))) throw new Refusal(401, 'invalid_signature');
-      const data = verifyPayload(body, config, binding);
+      const data = verifyPayload(body, request.headers, config, binding);
       const h = request.headers;
       const envelope = {
         event: Object.fromEntries(['specversion', 'id', 'source', 'type', 'time', 'dataschema'].map(key => [key, h[`ce-${key}`]])),
@@ -236,7 +310,7 @@ export function createBridge(config) {
       };
       if (inbox) inbox.accept(envelope, binding.effect);
       else await forward(config, envelope);
-      respond(response, 202, 'accepted');
+      respondAccepted(response, config.eventBodyFormat ?? 'direct-data-v0');
     } catch (error) { respond(response, error instanceof Refusal ? error.status : 503, error instanceof Refusal ? error.message : 'unavailable'); }
   });
   if (inbox) server.on('close', () => inbox.close());

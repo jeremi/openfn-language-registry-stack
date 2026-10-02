@@ -20,7 +20,7 @@ import urllib.request
 import uuid
 
 REPO = Path(__file__).resolve().parent.parent
-RUNTIME = REPO / 'pilot/agriculture/.runtime'
+RUNTIME = REPO / 'pilot/agriculture/.runtime-0.38'
 COMPOSE = [str(REPO / 'deployment/compose.sh')]
 PROFILE = 'openfn-service'
 SAFE_ID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
@@ -83,7 +83,7 @@ def http_json(url, *, method='GET', body=None, headers=None, timeout=20, parse_j
         data=None if body is None else json.dumps(body).encode(),
         headers={'Accept': 'application/json', **({'Content-Type': 'application/json'} if body is not None else {}), **(headers or {})})
     try:
-        with urllib.request.build_opener(NoRedirect()).open(request, timeout=timeout) as response:
+        with urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect()).open(request, timeout=timeout) as response:
             return response.status, json_output(response.read().decode(), 'HTTP service') if parse_json else None
     except urllib.error.HTTPError as error:
         # Bodies may contain subjects, workflow inputs, or diagnostic details.
@@ -131,15 +131,14 @@ class Pilot:
         private_write(self.state_path, self.state)
 
     def token(self):
-        value = captured(COMPOSE + ['run', '--rm', '--no-deps', 'tools', 'mint', 'token',
-            '--url', 'http://127.0.0.1:8091/token', '--client-id', PROFILE,
-            '--key', '/config/breg/clients/openfn-service/signing-p256-private-jwk'], 'Mint authentication').strip()
-        require(value.count('.') == 2 and not any(character.isspace() for character in value), 'Mint did not return one access token')
+        value = captured(COMPOSE + ['run', '--rm', '--no-deps', 'tools', 'python3',
+            '/opt/pilot/agriculture/issuer.py', 'token', PROFILE], 'ThunderID authentication').strip()
+        require(value.count('.') == 2 and not any(character.isspace() for character in value), 'ThunderID did not return one access token')
         return value
 
     def breg(self, path, method='GET', body=None, headers=None):
         separator = '&' if '?' in path else '?'
-        url = 'http://127.0.0.1:4002' + path + separator + urllib.parse.urlencode({'accessProfile': PROFILE})
+        url = 'http://127.0.0.1:4012' + path + separator + urllib.parse.urlencode({'accessProfile': PROFILE})
         status, value = http_json(url, method=method, body=body,
             headers={'Authorization': 'Bearer ' + self.token(), **(headers or {})})
         require(200 <= status < 300, 'Registry acceptance request was refused (HTTP ' + str(status) + ')')
@@ -170,7 +169,7 @@ class Pilot:
         require(isinstance(work_order_id, str) and bool(SAFE_ID.fullmatch(work_order_id)), 'OpenFn returned an invalid work-order identifier')
         end = time.monotonic() + self.timeout
         while time.monotonic() < end:
-            status, value = http_json('http://127.0.0.1:4000/api/work_orders/' + work_order_id,
+            status, value = http_json('http://127.0.0.1:4010/api/work_orders/' + work_order_id,
                 headers={'Authorization': 'Bearer ' + self.admin_token})
             require(status == 200, 'OpenFn work-order inspection failed')
             state = value.get('data', {}).get('attributes', {}).get('state')
@@ -186,7 +185,7 @@ class Pilot:
     def webhook(self, name, data, expect_success=True):
         trigger = self.project.get('triggerIds', {}).get(name)
         require(isinstance(trigger, str) and bool(SAFE_ID.fullmatch(trigger)), 'Private project configuration lacks a trigger')
-        status, value = http_json('http://127.0.0.1:4000/i/' + trigger, method='POST', body=data,
+        status, value = http_json('http://127.0.0.1:4010/i/' + trigger, method='POST', body=data,
             headers={'x-api-key': self.webhook_key}, timeout=self.timeout)
         if not expect_success and status == 422:
             return None
@@ -303,16 +302,16 @@ class Pilot:
         current = self.current_request()
         self.inspect_content(current)
         state = current['data'].get('request', {}).get('bregState')
-        require(state in ['submitted', 'approved', 'applied'], 'Correction is not in an expected review state')
-        if state == 'submitted':
+        require(state in ['submitted', 'applied'], 'Correction is not in an expected source state')
+        approved = current['data']['request'].get('review', {}).get('result', {}).get('state') == 'approved'
+        if state == 'submitted' and not approved:
             require(self.farm()['data']['domainData'].get('name') == self.state['registration']['name'], 'Submission changed the governed farm before approval')
             self.review('inspect')
             self.review('approve')
             require(self.farm()['data']['domainData'].get('name') == self.state['registration']['name'], 'Approval unexpectedly applied the correction')
             self.state['phase'] = 'approved'
             self.save()
-            state = 'approved'
-        if state == 'approved':
+        if state == 'submitted':
             require(self.farm()['data']['domainData'].get('name') == self.state['registration']['name'], 'Farm changed before explicit application')
             self.review('inspect')
             self.review('apply')
@@ -325,13 +324,13 @@ class Pilot:
 
     def restart_recovery(self):
         require(self.state.get('phase') == 'complete', 'Complete the main acceptance smoke before restart recovery')
-        # Only restart these existing pilot services. Keep databases, Mint's
+        # Only restart these current pilot services. Keep databases, the issuer's
         # shared network namespace, and every named volume intact.
-        captured(COMPOSE + ['restart', 'breg', 'worker', 'bridge', 'destination', 'lightning'], 'Retained-state pilot restart', timeout=180)
+        captured(COMPOSE + ['restart', 'breg', 'casework', 'worker', 'bridge', 'destination', 'lightning'], 'Retained-state pilot restart', timeout=180)
         end = time.monotonic() + self.timeout
         while time.monotonic() < end:
             try:
-                status, _ = http_json('http://127.0.0.1:4000/health_check', timeout=5, parse_json=False)
+                status, _ = http_json('http://127.0.0.1:4010/health_check', timeout=5, parse_json=False)
                 if status == 200:
                     break
             except SmokeFailure:

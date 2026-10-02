@@ -4,7 +4,11 @@ npm-debug.log*
 .DS_Store
 coverage/
 pilot/agriculture/.runtime/
+pilot/agriculture/.runtime-0.37/
+pilot/agriculture/.runtime-0.38/
 deployment/.env
+deployment/.env-0.37
+deployment/.env-0.38
 deployment/.build/
 deployment/.runtime/
 __pycache__/

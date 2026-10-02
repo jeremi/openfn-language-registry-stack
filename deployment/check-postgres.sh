@@ -5,7 +5,7 @@ set -eu
 docker run --rm -i --platform linux/amd64 --network none --user root \
   --tmpfs /var/lib/postgresql/data:rw,nosuid,nodev,size=256m \
   --env POSTGRES_HOST_AUTH_METHOD=trust --entrypoint sh \
-  registry-openfn-postgres:pilot -se <<'CHECK'
+  registry-openfn-postgres:pilot-038 -se <<'CHECK'
 install -d -o 1001 -g 1001 -m 0700 /config/postgres
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=synthetic-check \
   -keyout /config/postgres/server.key -out /config/postgres/server.crt >/dev/null 2>&1

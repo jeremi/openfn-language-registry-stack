@@ -16,14 +16,25 @@ decoded. Signatures are compared in constant time. Duplicate signed headers,
 content encoding, wrong source/type/schema, stale delivery times, and invalid
 payloads are refused before forwarding.
 
-The receiver accepts exactly the common BREG payload members `entity`, `recordId`,
-`revision`, `trigger`, `packageRevision`, and `values`. Entity, event schema,
-trigger, and projected field names must match configuration. Record/event ids
-must be canonical lowercase UUIDs, revision a positive safe integer, package
-revision a SHA-256 binding, and projected values strings of at most 1024 UTF-8
-bytes. Reviewed `request_lifecycle` events also carry closed request transition
-metadata. Per-event `entity` and `valueFields` override the common defaults.
-This is a bounded string projection receiver, not a general JSON Schema validator.
+The default `direct-data-v0` body format accepts the legacy BREG projection as
+the request body. Set `BREG_EVENT_BODY_FORMAT=hook-envelope-v1` for Registry
+Stack 0.38. That mode requires the exact canonical RFC 8785 `HookEnvelope`
+bytes emitted by BREG. Its closed members are `id`, `type`, `source`, `time`,
+`subject`, `dataschema`, `data`, and `causation`. The five CloudEvent identity
+members must equal their already verified `ce-*` headers. The subject must
+contain BREG's HMAC record reference and the same positive revision as `data`.
+Causation must be a valid root or child chain at or below hop 8. The mode is
+explicit so a malformed envelope cannot be reinterpreted as a legacy body.
+
+In either mode, the validated data accepts exactly the common BREG members
+`entity`, `recordId`, `revision`, `trigger`, `packageRevision`, and `values`.
+Entity, event schema, trigger, and projected field names must match
+configuration. Record/event ids must be canonical lowercase UUIDs, revision a
+positive safe integer, package revision a SHA-256 binding, and projected values
+strings of at most 1024 UTF-8 bytes. Reviewed `request_lifecycle` events also
+carry closed request transition metadata. Per-event `entity` and `valueFields`
+override the common defaults. This is a bounded string projection receiver,
+not a general JSON Schema validator.
 
 Configuration is required unless a default is listed:
 
@@ -32,6 +43,7 @@ Configuration is required unless a default is listed:
 | `BREG_HMAC_KEY_FILE` | File containing exact HMAC key bytes, at least 32 bytes. |
 | `BREG_EXPECTED_SOURCE` | Exact CloudEvent source for the registry instance. |
 | `BREG_EVENT_PATH` | Optional exact signed ingress path, default `/events/breg`; one lowercase name under `/events/`, with letters, digits or hyphens. |
+| `BREG_EVENT_BODY_FORMAT` | Exact body contract. Default `direct-data-v0` preserves legacy projection bodies. Set `hook-envelope-v1` for canonical Registry Stack 0.38 `HookEnvelope` bodies. No other value is accepted. |
 | `BREG_BIND_HOST` | Listener address, default `0.0.0.0` for compatibility. Set `127.0.0.1` for a host-local receiver; no other addresses are accepted. |
 | `BREG_EXPECTED_ENTITY` | Exact payload entity, `farm` for this pilot. |
 | `BREG_EXPECTED_EVENTS_FILE` | JSON object mapping each exact type to `{ "schema": "exact-dataschema", "trigger": "created" }`; `patched` and `request_lifecycle` are also supported. Optional per-event `entity` and `valueFields` override defaults; CLI mode requires `effect`. |
@@ -46,7 +58,10 @@ Configuration is required unless a default is listed:
 | `MAX_DELIVERY_SKEW_SECONDS` | Default 300; maximum 3600. Applies to delivery time, not original event time. |
 | `OPENFN_TIMEOUT_MS` | Default 3000; maximum 30000. Set below BREG's configured attempt timeout. |
 
-The authenticated OpenFn webhook receives this JSON envelope:
+The authenticated OpenFn webhook receives this normalized JSON envelope in
+both body modes. In `hook-envelope-v1`, the bridge validates the inbound
+subject and causation but forwards only the closed `data` projection so
+existing OpenFn jobs keep the same input contract:
 
 ```json
 {
@@ -82,6 +97,12 @@ acknowledges work-order acceptance, not workflow completion. Upstream rejection,
 malformed/generic success responses, redirects, transport failures, or oversized
 responses produce 502; deadline expiry produces 504. There are no internal
 retries, redirect following, or persistent bridge inbox in webhook mode.
+
+That legacy receipt applies to `direct-data-v0`. Registry Stack 0.38 treats a
+successful URL handler response as a canonical HookMessage. In
+`hook-envelope-v1`, the bridge therefore returns the notification answer
+`202 {"answer":"none"}` after the same durable handoff. This acknowledges the
+event without proposing a follow-up registry change.
 
 If acceptance occurs but the response is lost, BREG can submit another work
 order. The workflow and destination must tolerate this, including replay under

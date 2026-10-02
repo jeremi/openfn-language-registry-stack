@@ -1,0 +1,10 @@
+apiVersion: registry.registrystack.org/casework-fixture/v1alpha1
+kind: CaseworkFixture
+name: agriculture-name-correction-offline
+source:
+  id: agricultural-holdings
+  requestEntity: name-correction
+  reviewStage: review
+expect:
+  queue: corrections
+  applicationMode: manual

@@ -1,0 +1,23 @@
+version: 1
+clients:
+  - id: casework-admin
+    accessProfile: administrator
+    scopes: [casework:admin]
+    claims:
+      registry_actor_kind: human
+      registry_principal: synthetic-casework-admin
+  - id: reviewer
+    accessProfile: reviewer
+    scopes: [casework:staff]
+    claims:
+      registry_actor_kind: human
+      registry_principal: synthetic-reviewer
+  - id: casework-producer
+    accessProfile: integration-requester
+    scopes: [casework:reviews:request]
+    claims: {}
+directory:
+  - team: agriculture-reviewers
+    queue: corrections
+    staff: [reviewer]
+    supervisors: []

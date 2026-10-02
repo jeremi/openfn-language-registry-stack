@@ -25,6 +25,7 @@ class FakePilot(smoke.Pilot):
         self.calls = []
         self.current_name = None
         self.request_state = None
+        self.review_result = None
 
     def destination(self):
         return {'acceptedEvents': self.events + 100, 'appliedEffects': self.events + 100, 'records': int(self.events > 0) + 25}
@@ -47,7 +48,8 @@ class FakePilot(smoke.Pilot):
         return {'data': {'recordIdentifier': RECORD, 'domainData': {'name': self.current_name}}}
 
     def current_request(self):
-        return {'data': {'recordIdentifier': REQUEST, 'request': {'bregState': self.request_state},
+        return {'data': {'recordIdentifier': REQUEST, 'request': {'bregState': self.request_state,
+            'review': {'result': {'state': self.review_result}}},
             'domainData': {'record': RECORD, 'name': self.state['correctedName'], 'reason': self.state['reason'], 'supportingReference': self.state['supportingReference']}}}
 
     def review(self, action):
@@ -55,10 +57,11 @@ class FakePilot(smoke.Pilot):
         if action == 'approve':
             assert self.calls[-2] == ('review', 'inspect')
             assert self.current_name == self.state['registration']['name']
-            self.request_state = 'approved'
+            self.review_result = 'approved'
         if action == 'apply':
             assert self.calls[-2] == ('review', 'inspect')
-            assert self.request_state == 'approved'
+            assert self.request_state == 'submitted'
+            assert self.review_result == 'approved'
             self.request_state = 'applied'
             self.current_name = self.state['correctedName']
             self.events += 1
@@ -87,7 +90,8 @@ class SmokeTests(unittest.TestCase):
             pilot = FakePilot(Path(directory) / 'state.json')
             pilot.state.update(recordId=RECORD, requestId=REQUEST, baseline={'acceptedEvents': 0}, phase='approved')
             pilot.current_name = 'Old Name'
-            pilot.request_state = 'approved'
+            pilot.request_state = 'submitted'
+            pilot.review_result = 'approved'
             pilot.events = 1
             pilot.run()
             self.assertEqual(pilot.events, 2)
@@ -104,7 +108,7 @@ class SmokeTests(unittest.TestCase):
             pilot.run()
             with patch.object(smoke, 'captured', return_value='') as command, patch.object(smoke, 'http_json', return_value=(200, None)):
                 pilot.restart_recovery()
-                self.assertEqual(command.call_args.args[0][-6:], ['restart', 'breg', 'worker', 'bridge', 'destination', 'lightning'])
+                self.assertEqual(command.call_args.args[0][-7:], ['restart', 'breg', 'casework', 'worker', 'bridge', 'destination', 'lightning'])
                 self.assertEqual(pilot.state['restartRecovery'], 'passed')
                 self.assertEqual(pilot.events, 2)
 

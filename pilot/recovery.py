@@ -58,7 +58,7 @@ def event_for_record(record_id):
     require(bool(SAFE_ID.fullmatch(record_id)), 'Invalid recovery record identity')
     return database("SELECT coalesce(json_agg(event_id), '[]'::json) FROM registry_internal.registry_outbox "
         "WHERE entity_id='farm' AND payload IS NOT NULL AND "
-        "convert_from(payload,'UTF8')::jsonb->>'recordId'='" + record_id + "';")
+        "convert_from(payload,'UTF8')::jsonb->'data'->>'recordId'='" + record_id + "';")
 
 
 def delivery(event_id):
@@ -109,7 +109,7 @@ class Recovery:
     def ready(self):
         def probe():
             try:
-                return http_json('http://127.0.0.1:4000/health_check', timeout=5, parse_json=False)[0]
+                return http_json('http://127.0.0.1:4010/health_check', timeout=5, parse_json=False)[0]
             except SmokeFailure:
                 return None
         self.poll(probe, lambda status: status == 200, 'OpenFn readiness')
@@ -212,7 +212,7 @@ class Recovery:
             require(observed['deliveryId'] in ['events.farm.farm-created-v1.webhook', 'events.farm.farm-patched-v1.webhook'],
                 'Unexpected compiled smoke delivery')
             captured(COMPOSE + ['run', '--rm', '--no-deps', 'tools', 'bregctl', '--format', 'json', 'webhook', 'replay',
-                '--runtime-config', '/config/breg/runtime.json', '--event-id', event_id,
+                '--runtime-config', '/config/breg/runtime.yaml', '--event-id', event_id,
                 '--delivery-id', observed['deliveryId'], '--expected-generation', str(observed['generation'])],
                 'Explicit retained smoke BREG replay')
             settled = self.poll(lambda: delivery(event_id), lambda value: value['state'] == 'delivered',
@@ -254,7 +254,7 @@ class Recovery:
             require(observed['payloadAvailable'], 'Dead letter payload expired before replay')
             require(observed['deliveryId'] == 'events.farm.farm-created-v1.webhook', 'Unexpected compiled recovery delivery')
             captured(COMPOSE + ['run', '--rm', '--no-deps', 'tools', 'bregctl', '--format', 'json', 'webhook', 'replay',
-                '--runtime-config', '/config/breg/runtime.json', '--event-id', scenario['eventId'],
+                '--runtime-config', '/config/breg/runtime.yaml', '--event-id', scenario['eventId'],
                 '--delivery-id', observed['deliveryId'], '--expected-generation', str(observed['generation'])], 'Explicit BREG dead-letter replay')
         self.accepted(scenario)
         require(delivery(scenario['eventId'])['generation'] > scenario.get('deadLetterGeneration', 0), 'Replay did not advance generation')

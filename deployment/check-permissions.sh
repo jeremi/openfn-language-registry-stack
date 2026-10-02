@@ -2,7 +2,7 @@
 # Check bind readability as the runtime UIDs without exposing file contents.
 set -eu
 cd "$(dirname "$0")/.."
-runtime_root="$(pwd)/pilot/agriculture/.runtime"
+runtime_root="$(pwd)/pilot/agriculture/.runtime-0.38"
 node_image='node:24.19.0-bookworm@sha256:4196d66a565c6f195728d9952f161f4adfe2ad753052a08b7ec7f1c5a6bda42b'
 check_tree() {
   service_name="$1"
@@ -17,8 +17,11 @@ check_tree() {
   fi
 }
 runtime_uid="$(id -u):$(id -g)"
-check_tree mint "$runtime_uid" mint
+check_tree issuer "$runtime_uid" issuer
+check_tree tls-gateway "$runtime_uid" tls
+check_tree openbao "$runtime_uid" openbao
 check_tree breg "$runtime_uid" breg
+check_tree casework "$runtime_uid" casework
 check_tree evidence "$runtime_uid" evidence
 check_tree worker "$runtime_uid" evidence-client
 check_tree bridge "$runtime_uid" bridge

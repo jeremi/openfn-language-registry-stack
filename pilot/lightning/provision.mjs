@@ -85,7 +85,7 @@ async function prepareEnvironment(files, secrets) {
         `PRIMARY_ENCRYPTION_KEY=${randomBytes(32).toString('base64')}`,
         `WORKER_RUNS_PRIVATE_KEY=${Buffer.from(keys.privateKey).toString('base64')}`,
         `WORKER_SECRET=${shared}`, 'PHX_SERVER=true', 'LISTEN_ADDRESS=0.0.0.0', 'MAX_DATACLIP_SIZE_MB=1', 'DISABLE_DB_SSL=true',
-        'ORIGINS=http://localhost:4000,http://127.0.0.1:4000,http://lightning:4000',
+        'ORIGINS=http://localhost:4010,http://127.0.0.1:4010,http://lightning:4000',
         'WORKER_MAX_RUN_DURATION_SECONDS=60', 'USAGE_TRACKING_ENABLED=false',
       ].join('\n') + '\n',
       'worker.env': worker ?? [
@@ -112,8 +112,8 @@ async function prepareEnvironment(files, secrets) {
   }
 }
 
-export async function run(command = 'prepare', runtime = 'pilot/agriculture/.runtime', {
-  base = process.env.OPENFN_URL ?? 'http://127.0.0.1:4000', fetchImpl = fetch,
+export async function run(command = 'prepare', runtime = 'pilot/agriculture/.runtime-0.38', {
+  base = process.env.OPENFN_URL ?? 'http://127.0.0.1:4010', fetchImpl = fetch,
 } = {}) {
   runtime = resolve(runtime);
   const secrets = join(runtime, 'openfn', 'secrets');
@@ -154,6 +154,7 @@ export async function run(command = 'prepare', runtime = 'pilot/agriculture/.run
     createCorrectionOperation: generated.breg.correctionCreateOperation,
     requirement: generated.evidence.requirement,
     registeredConcept: generated.evidence.registeredConcept,
+    evidenceRequest: generated.evidence.request,
   };
   if (command === 'provision') {
     const empty = projectDocument(bindings);
@@ -171,10 +172,10 @@ export async function run(command = 'prepare', runtime = 'pilot/agriculture/.run
       destination: {baseUrl: 'http://destination:8082', apiKey: (await readFile(join(secrets, 'destination-api-key'), 'utf8')).trim()},
     };
     const statePath = join(secrets, 'credentials.json');
-    if (state.credentialFormat !== 2) {
+    if (state.credentialFormat !== 3) {
       // Legacy body layouts are not inspectable through the metadata API. Keep
       // their associations untouched and select a fresh, checkpointed namespace.
-      state = {credentialFormat: 2, previous: state, credentialNames: {}};
+      state = {credentialFormat: 3, previous: state, credentialNames: {}};
       await privateFile(statePath, JSON.stringify(state));
     }
     state.credentialNames ??= {};

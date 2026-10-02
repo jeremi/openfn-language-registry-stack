@@ -577,7 +577,7 @@ test("package pins the published native client and authentication schema", () =>
   const schema = JSON.parse(
     readFileSync(new URL("../configuration-schema.json", import.meta.url), "utf8"),
   );
-  assert.equal(manifest.dependencies["@registrystack/client"], "0.37.0");
+  assert.equal(manifest.dependencies["@registrystack/client"], "0.38.0");
   assert.deepEqual(schema.required, ["baseUrl", "profile"]);
   assert.deepEqual(schema.oneOf, [
     { required: ["token"] },

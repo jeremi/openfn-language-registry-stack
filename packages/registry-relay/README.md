@@ -1,6 +1,6 @@
 # OpenFn Registry Relay Adaptor
 
-OpenFn operations for Registry Relay 0.37.0. The adaptor uses the published
+OpenFn operations for Registry Relay 0.38.0. The adaptor uses the published
 `@registrystack/client` Relay namespace, so route construction, continuations,
 response validation, authentication, and protocol failures follow the maintained
 Relay V2 client contract.
@@ -105,7 +105,7 @@ describes one governed resource and the operations Relay actually exposes.
 
 ## Aggregate data
 
-Relay 0.37 publishes aggregate data through its SDMX 2.1 surface:
+Relay 0.38 publishes aggregate data through its SDMX 2.1 surface:
 
 ```js
 queryAggregate({

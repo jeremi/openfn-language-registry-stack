@@ -11,7 +11,7 @@ const require = createRequire('/opt/registry-adaptors/package.json');
 const client = require('@registrystack/client');
 assert.equal(typeof client.evidence.EvidenceClient, 'function');
 new client.breg.BaseRegistryClient({ baseUrl: 'http://127.0.0.1:8090' });
-assert.equal(JSON.parse(readFileSync('/opt/registry-adaptors/node_modules/@registrystack/client/package.json')).version, '0.27.0');
+assert.equal(JSON.parse(readFileSync('/opt/registry-adaptors/node_modules/@registrystack/client/package.json')).version, '0.38.0');
 assert.ok(process.report.getReport().header.glibcVersionRuntime, 'worker must use glibc');
 const { default: compile, preloadAdaptorExports } = await import('/app/packages/compiler/dist/index.js');
 const { default: run } = await import('/app/packages/runtime/dist/index.js');
@@ -46,7 +46,31 @@ const document = projectDocument({
   accessProfile: 'openfn-service',
   createFarmOperation: 'records.farm.create',
   createCorrectionOperation: 'records.name-correction.create',
-  requirement: 'urn:example:requirement:holding-registered:v1',
+  evidenceRequest: {
+    responseFormat: 'signed-jws',
+    requirement: 'urn:example:requirement:holding-registered:v1',
+    purpose: 'holding-verification',
+    audience: 'urn:example:audience:openfn-pilot',
+    evidenceType: 'urn:example:evidence:holding-registered',
+    issuedBy: 'urn:example:issuer:agriculture-holding-evidence',
+    providedBy: 'https://127.0.0.1:8445',
+    configurationRevision: `sha256:${'0'.repeat(64)}`,
+    expectedAssuranceProfile: 'production',
+    subjects: [{
+      role: 'subject',
+      selectorProfile: 'breg-8-registry-4-farm-19-by-local-identifier',
+      selectorValues: {'local-identifier': {valueFrom: 'data.values.local-identifier'}},
+    }],
+    expectedOutputs: [{
+      handle: 'registered',
+      concept: 'urn:example:concept:holding-registered:registered',
+      required: true,
+      form: 'boolean',
+    }],
+    maximumAssertionLifetimeSeconds: 300,
+    clockSkewSeconds: 30,
+    subjectExpectations: 'acceptFirstUse',
+  },
   registeredConcept: 'urn:example:concept:holding-registered:registered',
 });
 assert.equal(document.workflows.length, 3);

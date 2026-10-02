@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, randomBytes, sign } from 'node:crypto';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import http from 'node:http';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -22,6 +20,17 @@ const spec = {
   requirement: 'urn:example:requirement:farm-registered', purpose: 'registration-check',
   audience: 'urn:example:openfn', evidenceType: 'urn:example:evidence-type:registered',
   issuedBy: 'urn:example:agricultural-registry', providedBy: 'urn:example:evidence',
+};
+bindings.evidenceRequest = {
+  ...spec,
+  configurationRevision: revision,
+  expectedAssuranceProfile: 'local',
+  subjects: [{role: 'farm', selectorProfile: 'farm-id',
+    selectorValues: {'local-identifier': {valueFrom: 'data.values.local-identifier'}}}],
+  expectedOutputs: [{concept: bindings.registeredConcept, form: 'boolean'}],
+  maximumAssertionLifetimeSeconds: 300,
+  clockSkewSeconds: 30,
+  subjectExpectations: 'acceptFirstUse',
 };
 const envelope = () => ({
   event: { specversion: '1.0', source: 'urn:registrystack:registry:agricultural-holdings:instance:pilot',
@@ -44,7 +53,6 @@ function keyPair() {
 async function fixture(outcome = 'true') {
   const key = keyPair();
   const clientKey = keyPair();
-  const directory = mkdtempSync(resolve(tmpdir(), 'openfn-pilot-evidence-'));
   const requests = [];
   let origin;
   const json = (res, value, status = 200, mediaType = 'application/json') => {
@@ -57,23 +65,7 @@ async function fixture(outcome = 'true') {
     req.on('end', () => {
       const body = Buffer.concat(chunks).toString('utf8');
       requests.push({ path: req.url, body, authorization: req.headers.authorization });
-      if (req.url === '/.well-known/oauth-protected-resource') return json(res, {
-        resource: origin, authorization_servers: [origin], jwks_uri: `${origin}/.well-known/evidence/jwks.json`, bearer_methods_supported: ['header'],
-      });
-      if (req.url === '/.well-known/oauth-authorization-server') return json(res, {
-        issuer: origin, token_endpoint: `${origin}/token`, grant_types_supported: ['client_credentials'], token_endpoint_auth_methods_supported: ['private_key_jwt'],
-      });
-      if (req.url === '/.well-known/evidence/jwks.json') return json(res, key.jwks, 200, 'application/jwk-set+json');
       if (req.url === '/token') return json(res, { access_token: 'synthetic-evidence-token', token_type: 'Bearer', expires_in: 300 });
-      if (req.url === '/v1/evidence-definitions') return json(res, {
-        schema: 'registry.evidence-definitions/v1', assuranceProfile: 'local', audience: spec.audience, issuedBy: spec.issuedBy, providedBy: spec.providedBy,
-        definitions: [{ handle: bindings.requirement, requirement: spec.requirement, configurationRevision: revision,
-          kind: 'criterion', evidenceType: spec.evidenceType, purpose: spec.purpose, responseFormats: ['signed-jws'],
-          referenceFrameworks: ['urn:example:framework:registration'],
-          subjects: [{ role: 'farm', cardinality: 'one', selector: { profile: 'farm-id', valueOrigin: 'request',
-            fields: [{ type: 'string', name: 'local-identifier', minimumBytes: 1, maximumBytes: 200 }] } }],
-          concepts: [{ handle: 'registered', concept: bindings.registeredConcept, required: true, form: 'boolean' }] }],
-      });
       if (req.url === '/updates') return json(res, { status: 'applied', revision: JSON.parse(body).revision });
       if (req.url === '/v1/evidence') {
         if (outcome === 'unavailable') return json(res, {
@@ -100,12 +92,11 @@ async function fixture(outcome = 'true') {
   });
   await new Promise((done, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', done); });
   origin = `http://127.0.0.1:${server.address().port}`;
-  const profilePath = resolve(directory, 'client.json');
-  writeFileSync(profilePath, JSON.stringify({ schema: 'registry.evidence-client-profile/v1', baseUrl: origin,
-    clientId: 'openfn-pilot', privateKey: { source: 'file', path: 'unused.jwk' },
-    trust: { type: 'local-loopback-discovery' }, contracts: { type: 'published' } }), { mode: 0o600 });
-  return { requests, destinationConfiguration: { baseUrl: origin, apiKey: 'synthetic-destination-key' }, configuration: { evidence: { profilePath, privateKeyJwk: clientKey.privateJwk } },
-    close: async () => { await new Promise(done => server.close(done)); rmSync(directory, { recursive: true, force: true }); } };
+  return { requests, destinationConfiguration: { baseUrl: origin, apiKey: 'synthetic-destination-key' }, configuration: { evidence: {
+    baseUrl: origin, trustedJwks: key.jwks, revokedKeyIds: [],
+    token: {privateKeyJwt: {tokenEndpoint: `${origin}/token`, clientId: 'openfn-pilot', clientKey: clientKey.privateJwk}},
+  } },
+    close: async () => { await new Promise(done => server.close(done)); } };
 }
 
 async function executeEvidence(configuration, data, destinationConfiguration) {
@@ -160,6 +151,7 @@ test('committed workflow emits only event identity/revision and verified current
     assert.equal(JSON.stringify(result).includes(revision), false);
     assert.equal('configuration' in result, false);
     const requests = service.requests.filter(request => request.path === '/v1/evidence');
+    assert.deepEqual(service.requests.map(request => request.path), ['/token', '/v1/evidence']);
     assert.equal(requests.length, 1);
     assert.deepEqual(JSON.parse(requests[0].body).subjects, [{ role: 'farm', selector: { profile: 'farm-id', values: { 'local-identifier': 'synthetic-farm-selector' } } }]);
   } finally { await service.close(); }

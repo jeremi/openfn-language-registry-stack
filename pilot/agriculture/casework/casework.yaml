@@ -1,0 +1,73 @@
+apiVersion: registry.registrystack.org/casework/v1alpha1
+kind: CaseworkProject
+casework:
+  id: agriculture-review
+  version: "1"
+accessProfiles:
+  - id: reviewer
+    principalClaim: registry_principal
+    requiredScopes: [casework:staff]
+    role: staff
+  - id: supervisor
+    principalClaim: registry_principal
+    requiredScopes: [casework:supervisor]
+    role: supervisor
+  - id: administrator
+    principalClaim: registry_principal
+    requiredScopes: [casework:admin]
+    role: administrator
+  - id: integration-requester
+    principalClaim: sub
+    requiredScopes: [casework:reviews:request]
+    role: requester
+sources:
+  - id: agricultural-holdings
+    adapter: breg
+    description: sources/agricultural-holdings.json
+    requests:
+      - entity: name-correction
+        queue: corrections
+        contextProjection:
+          - record
+          - name
+          - reason
+          - supporting-reference
+queues:
+  - id: corrections
+    label: Agricultural holding name corrections
+reviewKinds:
+  - id: name-correction
+    version: "1"
+    purpose: approval
+    contextStrategy: source
+    stages:
+      - id: review
+        queue: corrections
+        decidingProfiles: [reviewer]
+        excludeInitiator: true
+        requiredApprovals: 1
+    retention:
+      terminalDays: 30
+      accountabilityDays: 365
+    displaySchema:
+      type: object
+      additionalProperties: false
+      properties:
+        record: {type: string, format: uuid}
+        name: {type: string, minLength: 1, maxLength: 160}
+        reason: {type: string, minLength: 1, maxLength: 500}
+        supportingReference: {type: string, minLength: 1, maxLength: 500}
+    outcomes:
+      - id: changes-requested
+        label: Request changes
+        settlement: changes_requested
+        reasonRequired: true
+reviewProducers:
+  - id: registry-breg
+    profile: integration-requester
+    issuer: https://127.0.0.1:8443
+    subject: __CASEWORK_PRODUCER_SUBJECT__
+    trustedInitiatorIssuer: https://127.0.0.1:8443
+    sourceNamespaces: [agricultural-holdings]
+    kinds: [name-correction]
+    recoveryDays: 7

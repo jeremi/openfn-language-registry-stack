@@ -120,7 +120,7 @@ export async function callEvidence(state, request) {
         requirement: request.requirement,
         assertion: verified.evidence,
         jws: verified.assertion.toString("utf8"),
-        // The separately locked 0.27 pilot predates retained verification.
+        // Keep retained verification bytes when the native result exposes them.
         ...(verified.retainedVerification === undefined ? {} : {
           retained_verification: verified.retainedVerification.toString("base64"),
         }),

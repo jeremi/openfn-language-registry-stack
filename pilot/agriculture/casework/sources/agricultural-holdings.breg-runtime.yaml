@@ -1,0 +1,26 @@
+# Candidate BReg operator binding. Review the endpoints and secret references, then merge this into launcher-owned runtime config.
+eventDestinations:
+  casework:
+    origin: http://localhost:8100
+    path: /events/sources/agricultural-holdings
+    networkProfile: loopbackDevelopmentHttp
+    dnsFamily: ipv4Only
+    allowedPrivateCidrs: []
+    hmacSha256KeyRef: secret:file/breg-casework-webhook
+    classificationCeiling: restricted
+    deliveryCeilings:
+      attemptTimeoutMilliseconds: 5000
+      maximumAttempts: 5
+reviewAuthorities:
+  "casework":
+    endpoint: https://casework.example.test
+    profile: "integration-requester"
+    producerId: "registry-breg"
+    recoveryDays: 7
+    privateKeyJwt:
+      tokenEndpoint: https://identity.example.test/oauth2/token
+      clientIdRef: secret:file/casework-producer-client-id
+      clientAssertionKeyRef: secret:file/casework-producer-private-jwk
+      assertionAudience: https://identity.example.test
+      resource: https://casework.example.test
+      scopes: [casework:reviews:request]
