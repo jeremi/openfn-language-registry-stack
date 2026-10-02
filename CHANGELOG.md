@@ -14,10 +14,16 @@
 ### Changed
 
 - The Evidence, BREG, Casework and Relay V2 adaptors pin the published
-  `@registrystack/client` 0.37.0. Relay uses governed V2 resources and native
+  `@registrystack/client` 0.38.0. Relay uses governed V2 resources and native
   continuations; Casework uses current review-request bindings and results.
-  The retained pilot's Registry Stack images, bootstrap tools and separately
-  locked client remain at 0.27.0.
+- The container pilot uses matching Registry Stack 0.38 clients, tools and
+  packages, ThunderID identity, Casework correction review, and explicit BREG
+  application. Evidence uses persistent OpenBao Transit signing and local TLS
+  origins. Its new configuration and volumes are separate from the retained
+  0.27 data.
+- The event bridge's explicit `hook-envelope-v1` mode validates canonical
+  0.38 events and returns the native notification acknowledgement after
+  durable OpenFn acceptance. The legacy body mode remains available.
 
 ### Removed
 

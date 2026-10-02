@@ -83,7 +83,7 @@ function baseState(data = {}) {
   };
 }
 
-test("getRecord uses the 0.37 native V2 route and preserves composition credentials", async () => {
+test("getRecord uses the 0.38 native V2 route and preserves composition credentials", async () => {
   requests.length = 0;
   const state = await getRecord({
     resource: "farmers",

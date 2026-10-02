@@ -17,9 +17,6 @@ WORKDIR /opt/registry-adaptors
 COPY deployment/package.json deployment/package-lock.json ./
 COPY packages/registry-evidence/package.json packages/registry-evidence/package.json
 COPY packages/registry-breg/package.json packages/registry-breg/package.json
-# This retained pilot uses 0.27 runtimes. Keep its install graph separate from
-# the current adaptor workspaces, which target Registry Stack 0.37.
-RUN node -e 'const fs=require("node:fs");for(const name of ["registry-evidence","registry-breg"]){const path=`packages/${name}/package.json`;const p=JSON.parse(fs.readFileSync(path));p.dependencies["@registrystack/client"]="0.27.0";fs.writeFileSync(path,JSON.stringify(p,null,2)+"\n")}'
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 COPY deployment/check-native.cjs /opt/registry-adaptors/check-native.cjs
 RUN node /opt/registry-adaptors/check-native.cjs

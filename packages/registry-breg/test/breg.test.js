@@ -131,7 +131,7 @@ test("safe stable failures distinguish not found, denied, conflict and temporary
   }
 });
 
-test("0.37 located request and query refusals stay invalid requests without exposing paths", async () => {
+test("0.38 located request and query refusals stay invalid requests without exposing paths", async () => {
   for (const [code, detail, fieldPath] of [
     ["request.invalid", "The request is invalid.", "/data/legalName"],
     ["query.invalid", "The query request is invalid.", "$select"],

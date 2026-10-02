@@ -1,0 +1,78 @@
+version: 1
+clients:
+  - id: reader
+    accessProfiles:
+      - reader
+    scopes:
+      - starter:reader
+    claims:
+      registry_actor_kind: service
+      registry_principal: synthetic-reader
+      registry_purpose: starter-learning
+  - id: editor
+    accessProfiles:
+      - editor
+    allowHumanFixture: true
+    scopes:
+      - starter:editor
+    claims:
+      registry_actor_kind: human
+      registry_principal: synthetic-editor
+      registry_purpose: starter-learning
+  - id: reviewer
+    accessProfiles: []
+    allowBregAccess: true
+    allowHumanFixture: true
+    scopes:
+      - casework:staff
+      - starter:reviewer
+    claims:
+      registry_principal: synthetic-reviewer
+      registry_purpose: starter-learning
+      registry_actor_kind: human
+  - id: openfn-service
+    accessProfiles:
+      - openfn-service
+    allowBregAccess: true
+    allowHumanFixture: true
+    scopes:
+      - pilot:submit
+    claims:
+      registry_principal: synthetic-openfn-service
+      registry_purpose: agriculture-registration
+      registry_actor_kind: human
+  - id: evidence-source
+    accessProfiles:
+      - evidence-source
+    scopes:
+      - pilot:evidence-source
+    claims:
+      registry_principal: synthetic-evidence-source
+      registry_purpose: evidence-source-read
+      registry_actor_kind: service
+  - id: "casework-reader"
+    accessProfiles: ["casework-reader"]
+    scopes: ["casework:source-reader"]
+    claims:
+      "registry_actor_kind": "service"
+      "registry_principal": "casework-reader"
+      "registry_purpose": "casework-sync"
+  - id: "casework-admin"
+    accessProfiles: []
+    scopes: ["casework:admin"]
+    allowHumanFixture: true
+    claims:
+      "registry_actor_kind": "human"
+      "registry_principal": "synthetic-casework-admin"
+  - id: "casework-producer"
+    accessProfiles: []
+    scopes: ["casework:reviews:request"]
+    claims:
+      "registry_actor_kind": "service"
+reviewAuthorities:
+  "casework":
+    endpoint: "http://127.0.0.1:8092"
+    profile: "integration-requester"
+    producerId: "registry-breg"
+    recoveryDays: 7
+    client: "casework-producer"

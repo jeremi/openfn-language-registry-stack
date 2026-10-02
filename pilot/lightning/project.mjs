@@ -26,6 +26,10 @@ fn(state => {
 export function projectDocument(bindings, credentials = {}, enabled = false) {
   const literal = value => JSON.stringify(value).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
   const profile = literal(bindings.accessProfile);
+  const evidenceRequest = bindings.evidenceRequest ?? {
+    requirement: bindings.requirement,
+    selectors: {'local-identifier': {valueFrom: 'data.values.local-identifier'}},
+  };
   const validateSubmission = `fn(state => {
     const value = state.data.submissionId;
     if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(value)) throw new Error('A stable submissionId is required');
@@ -67,7 +71,7 @@ fn(async state => {
       idempotencyKey: 'correction-submit:' + state.data.submissionId, as: 'result'
     })(state);
     if (state.data.result.branch !== 'succeeded') throw new Error('Correction submission did not complete: ' + state.data.result.branch);
-  } else if (!['submitted', 'approved', 'applied', 'rejected'].includes(request?.bregState)) {
+  } else if (!['submitted', 'applied'].includes(request?.bregState)) {
     throw new Error('Correction is not ready for submission');
   }
   return {data: {status: action ? 'submitted' : 'already_submitted', requestId: state.data.requestId}};
@@ -89,8 +93,7 @@ fn(state => {
   return state;
 });
 requestEvidence({
-  requirement: ${literal(bindings.requirement)},
-  selectors: {'local-identifier': {valueFrom: 'data.values.local-identifier'}}, as: 'result'
+  ...${literal(evidenceRequest)}, as: 'result'
 });
 fn(state => {
   const result = state.data.result;

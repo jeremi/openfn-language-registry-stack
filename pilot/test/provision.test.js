@@ -63,7 +63,7 @@ test('credential creation survives lost POST response and resumes without duplic
   const api = remote({loseFirstCreate: true});
   await assert.rejects(run('provision', root, api), /response lost/);
   const partial = await readJson(join(secrets, 'credentials.json'));
-  assert.equal(partial.credentialFormat, 2, 'format must be durable before the first POST');
+  assert.equal(partial.credentialFormat, 3, 'format must be durable before the first POST');
   assert.ok(partial.credentialNames.breg);
   assert.equal(partial.breg, undefined);
   await run('provision', root, api);
@@ -75,9 +75,9 @@ test('credential creation survives lost POST response and resumes without duplic
   assert.equal(api.creations.length, 3, 'repeat must preserve selected remote credentials');
 });
 
-test('legacy associations remain untouched while replacement format uses a fresh namespace', async t => {
+test('prior credential format remains untouched while replacement uses a fresh namespace', async t => {
   const {root, secrets} = await fixture(t);
-  const legacy = {breg: 'old-association'};
+  const legacy = {credentialFormat: 2, breg: 'old-association'};
   await privateFile(join(secrets, 'credentials.json'), JSON.stringify(legacy));
   const old = {id: 'old', name: 'Agriculture breg main', schema: 'raw', project_credentials: [{project_id: projectId, id: 'old-association'}]};
   const api = remote({credentials: [old]});
@@ -129,7 +129,7 @@ test('failed checkpoint write preserves prior bytes and removes staging file', a
   assert.ok(!(await readdir(secrets)).some(name => name.endsWith('.tmp')));
 });
 
-test('partial format-two checkpoint reuses the credential saved before the next request failed', async t => {
+test('partial format-three checkpoint reuses the credential saved before the next request failed', async t => {
   const {root, secrets} = await fixture(t);
   const api = remote();
   let failSecond = true;
@@ -142,7 +142,7 @@ test('partial format-two checkpoint reuses the credential saved before the next 
   }};
   await assert.rejects(run('provision', root, interrupted), /second credential unavailable/);
   const before = await readJson(join(secrets, 'credentials.json'));
-  assert.equal(before.credentialFormat, 2);
+  assert.equal(before.credentialFormat, 3);
   assert.equal(before.breg, 'association-1');
   await run('provision', root, api);
   assert.equal(api.creations.length, 3);
@@ -168,7 +168,7 @@ async function enableFixture(t, unsafeTrigger) {
   const local = await fixture(t);
   await privateFile(join(local.secrets, 'webhook-api-key'), 'synthetic-intake-key');
   await privateFile(join(local.secrets, 'committed-api-key'), 'synthetic-committed-key');
-  await privateFile(join(local.secrets, 'credentials.json'), JSON.stringify({credentialFormat: 2}));
+  await privateFile(join(local.secrets, 'credentials.json'), JSON.stringify({credentialFormat: 3}));
   const probes = [];
   let enabled = false;
   const fetchImpl = async (input, options) => {

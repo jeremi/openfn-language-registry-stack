@@ -1,0 +1,148 @@
+{
+  "apiVersion": "registry.registrystack.org/casework-source-description/v1alpha1",
+  "authority": "none",
+  "kind": "BRegCaseworkSourceDescription",
+  "origin": "bregctl explain change-requests",
+  "request": {
+    "actions": [
+      {
+        "method": "POST",
+        "operation": "submit_request",
+        "preconditions": [
+          "Idempotency-Key",
+          "If-Match"
+        ],
+        "routeId": "records.name-correction.request.submit"
+      },
+      {
+        "method": "POST",
+        "operation": "revise_request",
+        "preconditions": [
+          "Idempotency-Key",
+          "If-Match"
+        ],
+        "routeId": "records.name-correction.request.revise"
+      },
+      {
+        "method": "POST",
+        "operation": "cancel_request",
+        "preconditions": [
+          "Idempotency-Key",
+          "If-Match"
+        ],
+        "routeId": "records.name-correction.request.cancel"
+      },
+      {
+        "method": "POST",
+        "operation": "apply_request",
+        "preconditions": [
+          "Idempotency-Key",
+          "If-Match",
+          "proposalVersion",
+          "effectDigest"
+        ],
+        "routeId": "records.name-correction.request.apply"
+      }
+    ],
+    "application": {},
+    "applyPermissions": [
+      {
+        "profile": "reviewer",
+        "rowBoundaries": [],
+        "targetEntity": "farm"
+      }
+    ],
+    "bounds": {
+      "maximumFieldMutations": 128,
+      "maximumSnapshotBytes": 2097152,
+      "maximumTargets": 16
+    },
+    "contractFingerprint": "sha256:258d82787cbdf4506778cf9deac111b3bf7540f926b312ebc9b083fab0ee2b03",
+    "effects": [
+      {
+        "dependsOn": [],
+        "fields": [
+          {
+            "kind": "set",
+            "target": {
+              "apiName": "name",
+              "field": "name"
+            },
+            "value": {
+              "field": {
+                "apiName": "name",
+                "field": "name"
+              },
+              "kind": "from_field"
+            }
+          }
+        ],
+        "id": "effect-1",
+        "operation": "patch",
+        "target": {
+          "binding": {
+            "fromField": {
+              "apiName": "record",
+              "field": "record"
+            },
+            "kind": "existing"
+          },
+          "entity": "farm"
+        }
+      }
+    ],
+    "fields": [
+      {
+        "apiName": "record",
+        "field": "record",
+        "schema": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      {
+        "apiName": "name",
+        "field": "name",
+        "schema": {
+          "maxLength": 160,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      {
+        "apiName": "reason",
+        "field": "reason",
+        "schema": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      {
+        "apiName": "supportingReference",
+        "field": "supporting-reference",
+        "schema": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        }
+      }
+    ],
+    "onApproved": {
+      "mode": "manual"
+    },
+    "planner": {
+      "abi": "registry.change-request-plan/v1",
+      "kind": "declarative"
+    },
+    "presencePermissions": [],
+    "requestEntity": "name-correction",
+    "requestRoute": "name-corrections",
+    "review": {
+      "authority": "casework",
+      "policyId": "name-correction"
+    }
+  },
+  "sourceId": "agricultural-holdings",
+  "sourceRevision": "sha256:15b42deee1cb724bee342be3167e722794ee067aca81406215440eedda735720"
+}

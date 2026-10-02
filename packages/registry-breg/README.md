@@ -1,7 +1,7 @@
 # @openfn/language-registry-breg
 
 OpenFn operations over the native `breg` namespace in the exact published
-`@registrystack/client@0.37.0`. The adaptor uses
+`@registrystack/client@0.38.0`. The adaptor uses
 `@openfn/language-common@3.3.4` and reexports its composition helpers.
 It does not implement Registry authorization or an alternative HTTP client.
 
@@ -86,7 +86,7 @@ through the native client, and requires exactly one matching operation/stage and
 the caller's held `ifMatch`. A changed proposal fails before any action POST.
 Supported operation names are `submit_request`, `revise_request`,
 `cancel_request`, and `apply_request`, subject to the current metadata, actor
-and record state. Casework owns review decisions in Registry Stack 0.37;
+and record state. Casework owns review decisions in Registry Stack 0.38;
 approval and rejection are not BREG lifecycle actions.
 
 Create a governed correction with `createChangeRequest`, read the created request
@@ -132,5 +132,5 @@ copies bounded, plain JSON across the OpenFn VM boundary into the SDK realm;
 opaque handles stay local. Tests cover native lookup/read/write/lifecycle HTTP
 contracts, continuation, precondition refusal, failure redaction and runtime
 credential removal. Private-key JWT configuration and token transport failure
-are exercised; a successful live Mint exchange and real PostgreSQL governance
+are exercised; a successful live OAuth exchange and real PostgreSQL governance
 are integration checks outside these mock tests.

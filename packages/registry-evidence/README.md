@@ -12,7 +12,7 @@ as:
 
 ## Client packaging
 
-This package pins `@registrystack/client` to **0.37.0** and uses its `evidence`
+This package pins `@registrystack/client` to **0.38.0** and uses its `evidence`
 namespace. Supported native targets are macOS arm64, Linux amd64 glibc, and
 Linux arm64 glibc. Alpine/musl is unsupported. Use a glibc OpenFn worker image.
 

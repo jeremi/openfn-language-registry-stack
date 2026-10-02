@@ -1,7 +1,7 @@
 # Registry Casework Requester adaptor
 
 This OpenFn adaptor wraps the Requester review API in the published
-Registry Stack Node client 0.37.0. It creates or recovers review requests,
+Registry Stack Node client 0.38.0. It creates or recovers review requests,
 reads request state and correlated results, adds requester-visible notes, pages
 requester-visible history and result feeds, and cancels an accepted request.
 It also preserves the maintained source-inbox and task-grant inspection surface
@@ -79,7 +79,7 @@ credentials, configuration, and caller inputs are not copied into the result.
 
 ## Request body
 
-The create request follows the native 0.37.0 contract. For submitted context:
+The create request follows the native 0.38.0 contract. For submitted context:
 
 ```json
 {
@@ -133,7 +133,7 @@ execute(
 
 ## Verification
 
-The package check exercises fake bindings and the installed 0.37.0 native
+The package check exercises fake bindings and the installed 0.38.0 native
 client against a loopback HTTP service:
 
 ```sh

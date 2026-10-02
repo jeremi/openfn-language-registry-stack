@@ -13,6 +13,19 @@ const source = 'urn:registrystack:registry:agricultural-holdings:instance:pilot'
 const schema = `urn:breg:event-schema:agricultural-holdings:farm:farm-created-v1:sha256:${'a'.repeat(64)}`;
 const data = { entity: 'farm', recordId: '11111111-1111-4111-8111-111111111111', revision: 1,
   trigger: 'created', packageRevision: `sha256:${'b'.repeat(64)}`, values: { 'local-identifier': 'SYNTHETIC-FARM-001' } };
+const eventId = '22222222-2222-4222-8222-222222222222';
+// Independent fixture matching the published 0.38 bregctl webhook sample:
+// the shared envelope repeats the five CloudEvent identity members, carries a
+// closed subject and root causation, and wraps the governed BREG projection.
+const hookEnvelope = { id: eventId, type: 'farm-created-v1', source, time: '2020-01-01T00:00:00Z',
+  subject: { recordReference: `hmac-sha256:${'d'.repeat(64)}`, recordRevision: 1 }, dataschema: schema,
+  data, causation: { root: eventId, hop: 0 } };
+
+function canonicalFixture(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalFixture).join(',')}]`;
+  return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalFixture(value[key])}`).join(',')}}`;
+}
 
 // Independent implementation of the ordered Rust signing contract, deliberately
 // not the production verifier helper. Any body or signed-header change is bound.
@@ -30,16 +43,20 @@ function sign(headers, body, path = EVENT_PATH, method = 'POST') {
   return `v1=${createHmac('sha256', key).update(Buffer.concat(parts)).digest('base64url')}`;
 }
 
-function delivery(changes = {}, value = data, path = EVENT_PATH) {
-  const body = Buffer.from(JSON.stringify(value));
+function delivery(changes = {}, value = data, path = EVENT_PATH, canonical = false) {
+  const body = Buffer.from(canonical ? canonicalFixture(value) : JSON.stringify(value));
   const headers = { 'content-type': 'application/json', 'ce-specversion': '1.0',
-    'ce-id': '22222222-2222-4222-8222-222222222222', 'ce-source': source, 'ce-type': 'farm-created-v1',
+    'ce-id': eventId, 'ce-source': source, 'ce-type': 'farm-created-v1',
     'ce-time': '2020-01-01T00:00:00Z', 'ce-dataschema': schema,
     'x-registry-event-generation': '1', 'x-registry-delivery-attempt': '1',
     'x-registry-delivery-time': new Date().toISOString(), 'idempotency-key': `sha256:${'c'.repeat(64)}`,
     ...changes };
   headers['x-registry-signature'] = sign(headers, body, path);
   return { headers, body };
+}
+
+function envelopeDelivery(changes = {}, value = hookEnvelope, path = EVENT_PATH) {
+  return delivery(changes, value, path, true);
 }
 
 async function listen(server) {
@@ -85,6 +102,73 @@ test('forwards verified envelope only after real work-order acceptance; old even
   assert.equal(calls[0].data.event.source, source);
   assert.equal(calls[0].data.delivery.generation, 1);
   assert.equal(JSON.stringify(calls[0]).includes(key.toString()), false);
+});
+
+test('accepts the canonical 0.38 HookEnvelope and preserves the normalized OpenFn shape', async t => {
+  const { url, calls } = await fixture(t, undefined, { eventBodyFormat: 'hook-envelope-v1' });
+  const request = envelopeDelivery();
+  const response = await fetch(`${url}${EVENT_PATH}`, { method: 'POST', ...request });
+  assert.equal(response.status, 202);
+  assert.equal(await response.text(), '{"answer":"none"}');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].data.data, data);
+  assert.deepEqual(calls[0].data.event, {
+    specversion: '1.0', id: eventId, source, type: 'farm-created-v1',
+    time: '2020-01-01T00:00:00Z', dataschema: schema,
+  });
+  assert.equal(calls[0].data.subject, undefined);
+  assert.equal(calls[0].data.causation, undefined);
+});
+
+test('HookEnvelope identity is bound exactly to verified CloudEvent headers', async t => {
+  const { url, calls } = await fixture(t, undefined, { eventBodyFormat: 'hook-envelope-v1' });
+  for (const value of [
+    { ...hookEnvelope, id: '44444444-4444-4444-8444-444444444444' },
+    { ...hookEnvelope, type: 'farm-patched-v1' },
+    { ...hookEnvelope, source: `${source}-other` },
+    { ...hookEnvelope, time: '2020-01-01T00:00:01Z' },
+    { ...hookEnvelope, dataschema: `${schema}f` },
+  ]) {
+    assert.equal((await fetch(`${url}${EVENT_PATH}`, { method: 'POST', ...envelopeDelivery({}, value) })).status, 400);
+  }
+  assert.equal(calls.length, 0);
+});
+
+test('HookEnvelope refuses invalid subject, causation and unknown members after valid signing', async t => {
+  const { url, calls } = await fixture(t, undefined, { eventBodyFormat: 'hook-envelope-v1' });
+  const otherId = '44444444-4444-4444-8444-444444444444';
+  const thirdId = '55555555-5555-4555-8555-555555555555';
+  const values = [
+    { ...hookEnvelope, subject: { ...hookEnvelope.subject, recordRevision: 2 } },
+    { ...hookEnvelope, subject: { ...hookEnvelope.subject, recordReference: data.recordId } },
+    { ...hookEnvelope, subject: { ...hookEnvelope.subject, unexpected: 'SYNTHETIC-PRIVATE-CANARY' } },
+    { ...hookEnvelope, causation: { root: otherId, hop: 0 } },
+    { ...hookEnvelope, causation: { root: eventId, parent: otherId, hop: 0 } },
+    { ...hookEnvelope, causation: { root: otherId, hop: 1 } },
+    { ...hookEnvelope, causation: { root: otherId, parent: eventId, hop: 1 } },
+    { ...hookEnvelope, causation: { root: eventId, parent: thirdId, hop: 1 } },
+    { ...hookEnvelope, causation: { root: otherId, parent: thirdId, hop: 9 } },
+    { ...hookEnvelope, causation: { root: eventId, hop: 0, unexpected: 'SYNTHETIC-PRIVATE-CANARY' } },
+    { ...hookEnvelope, unexpected: 'SYNTHETIC-PRIVATE-CANARY' },
+    { ...hookEnvelope, data: { ...data, unexpected: 'SYNTHETIC-PRIVATE-CANARY' } },
+  ];
+  for (const value of values) {
+    const response = await fetch(`${url}${EVENT_PATH}`, { method: 'POST', ...envelopeDelivery({}, value) });
+    assert.equal(response.status, 400);
+    assert.equal((await response.text()).includes('SYNTHETIC-PRIVATE-CANARY'), false);
+  }
+  assert.equal(calls.length, 0);
+});
+
+test('HookEnvelope requires canonical JSON and normalized millisecond UTC time', async t => {
+  const { url, calls } = await fixture(t, undefined, { eventBodyFormat: 'hook-envelope-v1' });
+  const noncanonical = delivery({}, hookEnvelope);
+  assert.equal((await fetch(`${url}${EVENT_PATH}`, { method: 'POST', ...noncanonical })).status, 400);
+  for (const time of ['2020-01-01T00:00:00.000Z', '2019-12-31T19:00:00-05:00', '2020-01-01T00:00:00.1234Z']) {
+    const value = { ...hookEnvelope, time };
+    assert.equal((await fetch(`${url}${EVENT_PATH}`, { method: 'POST', ...envelopeDelivery({ 'ce-time': time }, value) })).status, 400);
+  }
+  assert.equal(calls.length, 0);
 });
 
 test('configured event path is exact and bound into the HMAC', async t => {
@@ -197,6 +281,11 @@ test('configuration uses exact secret bytes, explicit HTTP trust and safe errors
     BREG_EXPECTED_SOURCE: source, BREG_EXPECTED_ENTITY: 'farm', OPENFN_WEBHOOK_URL: 'http://openfn:4000/i/pilot' };
   assert.throws(() => loadConfig(env), /^Error: invalid bridge configuration$/);
   assert.equal(loadConfig({ ...env, ALLOW_HTTP: 'true' }).hmacKey.at(-1), 10);
+  assert.equal(loadConfig({ ...env, ALLOW_HTTP: 'true' }).eventBodyFormat, 'direct-data-v0');
+  assert.equal(loadConfig({ ...env, ALLOW_HTTP: 'true', BREG_EVENT_BODY_FORMAT: 'hook-envelope-v1' }).eventBodyFormat,
+    'hook-envelope-v1');
+  assert.throws(() => loadConfig({ ...env, ALLOW_HTTP: 'true', BREG_EVENT_BODY_FORMAT: 'guess' }),
+    /^Error: invalid bridge configuration$/);
   assert.equal(loadConfig({ ...env, ALLOW_HTTP: 'true', BREG_EVENT_PATH: '/events/laboratory' }).eventPath, '/events/laboratory');
   assert.equal(loadConfig({ ...env, ALLOW_HTTP: 'true' }).bindHost, '0.0.0.0');
   assert.equal(loadConfig({ ...env, ALLOW_HTTP: 'true', BREG_BIND_HOST: '127.0.0.1' }).bindHost, '127.0.0.1');
@@ -214,7 +303,7 @@ test('CLI delivery authenticates before durable acceptance and handles lifecycle
   const directory = await mkdtemp(join(tmpdir(), 'bridge-durable-'));
   const path = join(directory, 'inbox.sqlite');
   const { url, calls } = await fixture(t, () => { throw new Error('CLI mode must not forward'); }, {
-    deliveryMode: 'cli', inboxPath: path,
+    deliveryMode: 'cli', inboxPath: path, eventBodyFormat: 'hook-envelope-v1',
     expectedEvents: { 'farm-created-v1': { schema, trigger: 'request_lifecycle', effect: 'notify',
       entity: 'correction-request', valueFields: ['record-reference'] } },
   });
@@ -224,15 +313,18 @@ test('CLI delivery authenticates before durable acceptance and handles lifecycle
     request: { proposalVersion: 1, workflowRevision: 2, transition: 'request_revision',
       fromState: 'submitted', toState: 'needs_changes', stage: 'review', reasonPresent: false,
       effectDigest: `sha256:${'d'.repeat(64)}`, deduplicationKey: `sha256:${'e'.repeat(64)}` } };
-  const invalid = delivery({}, payload);
+  const envelope = { ...hookEnvelope, data: payload };
+  const invalid = envelopeDelivery({}, envelope);
   invalid.headers['x-registry-signature'] = `v1=${'x'.repeat(43)}`;
   assert.equal((await fetch(`${url}${EVENT_PATH}`, { method: 'POST', ...invalid })).status, 401);
   const persisted = new DurableInbox(path);
   try {
     assert.equal(persisted.status().length, 0);
     for (const generation of ['1', '2']) {
-      const request = delivery({ 'x-registry-event-generation': generation }, payload);
-      assert.equal((await fetch(`${url}${EVENT_PATH}`, { method: 'POST', ...request })).status, 202);
+      const request = envelopeDelivery({ 'x-registry-event-generation': generation }, envelope);
+      const response = await fetch(`${url}${EVENT_PATH}`, { method: 'POST', ...request });
+      assert.equal(response.status, 202);
+      assert.equal(await response.text(), '{"answer":"none"}');
       assert.equal(persisted.status().length, 1, '202 means durable acceptance, even before worker starts');
     }
     assert.equal(calls.length, 0);
